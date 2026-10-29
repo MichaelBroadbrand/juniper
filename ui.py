@@ -564,10 +564,6 @@ class _Actions(AppKit.NSObject):
         if _ui:
             _ui.sidebar_delete(sender.superview().session_name)
 
-    def cancelDelete_(self, sender):
-        if _ui:
-            _ui.overlay.ask_delete(None)
-
     def clearSession_(self, sender):
         if _ui:
             _ui.sidebar_clear(sender.representedObject())
@@ -636,6 +632,8 @@ class _Row(AppKit.NSView):
     def mouseExited_(self, event):
         if getattr(self, "del_btn", None):
             self.del_btn.setHidden_(True)
+        if getattr(self, "asking", False) and _ui:      # moving away from "Delete" is a no
+            _ui.overlay.ask_delete(None)
 
     def menuForEvent_(self, event):
         return _ui.row_menu(self.session_name) if _ui and getattr(self, "session_name", None) else None
@@ -1195,8 +1193,8 @@ class Overlay:
         return CIRCLE + n * 50 + 10
 
     def ask_delete(self, name):
-        """Turn a session's sidebar row into "Delete …? Delete / Cancel" (None puts it back)."""
-        self.deleting = (name, time.time() + 6) if name else None
+        """Turn a session's ✕ into a red Delete to confirm with (None puts it back)."""
+        self.deleting = (name, time.time() + 4) if name else None
         self.sidebar_key = None
 
     def _sidebar(self, rows, height):
@@ -1235,25 +1233,34 @@ class Overlay:
                     AppKit.NSForegroundColorAttributeName: colours.get(status, AppKit.NSColor.secondaryLabelColor())}))
                 f.setAttributedStringValue_(text)
             f.setFrame_(AppKit.NSMakeRect(10, 25, SIDEBAR - 36, 15))
-            if name == asking:
-                # Deleting asks in the row itself: Delete (red) or Cancel, and it lets go after a few seconds.
-                row.layer().setBackgroundColor_(AppKit.NSColor.systemRedColor().colorWithAlphaComponent_(0.14).CGColor())
-                n.setStringValue_(f"Delete {name}?")
-                n.setFrame_(AppKit.NSMakeRect(10, 4, SIDEBAR - 36, 18))
-                row.addSubview_(n)
-                x = 10
-                for b in (_pill("Delete", self.actions, "confirmDelete:", 0, danger=True),
-                          _pill("Cancel", self.actions, "cancelDelete:", 0)):
-                    b.setFrame_(AppKit.NSMakeRect(x, 23, b.frame().size.width - 4, 19))
-                    b.layer().setCornerRadius_(6)
-                    x += b.frame().size.width + 6
-                    row.addSubview_(b)
-                self.side_doc.addSubview_(row)
-                y += 50
-                continue
             row.addSubview_(n)
             row.addSubview_(f)
-            if name != "general":                       # general always stays; it can only be cleared
+            if name == asking:
+                # The ✕ becomes a red "Delete": click it to confirm; move away (or wait) and it's back.
+                b = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, 10, 22))
+                b.setBordered_(False)
+                b.setWantsLayer_(True)
+                b.layer().setBackgroundColor_(AppKit.NSColor.systemRedColor().CGColor())
+                b.layer().setCornerRadius_(11)
+                font = AppKit.NSFont.systemFontOfSize_weight_(12, AppKit.NSFontWeightSemibold)
+                b.setAttributedTitle_(AppKit.NSAttributedString.alloc().initWithString_attributes_("Delete", {
+                    AppKit.NSFontAttributeName: font, AppKit.NSForegroundColorAttributeName: AppKit.NSColor.whiteColor()}))
+                w = math.ceil(b.attributedTitle().size().width) + 20
+                b.setFrame_(AppKit.NSMakeRect(SIDEBAR - 24 - w, 12, w, 22))
+                b.setTarget_(self.actions)
+                b.setAction_("confirmDelete:")
+                b.setAlphaValue_(0)
+                row.addSubview_(b)
+                def fade_in(ctx, b=b):
+                    ctx.setDuration_(0.15)
+                    b.animator().setAlphaValue_(1)
+                AppKit.NSAnimationContext.runAnimationGroup_completionHandler_(fade_in, None)
+                n.setFrame_(AppKit.NSMakeRect(10, 6, SIDEBAR - 36 - w - 8, 18))
+                f.setFrame_(AppKit.NSMakeRect(10, 25, SIDEBAR - 36 - w - 8, 15))
+                row.asking = True
+                row.addTrackingArea_(AppKit.NSTrackingArea.alloc().initWithRect_options_owner_userInfo_(
+                    row.bounds(), _TRACK, row, None))
+            elif name != "general":                     # general always stays; it can only be cleared
                 x = _symbol_button("xmark.circle.fill", self.actions, "deleteSession:", 13,
                                    AppKit.NSColor.tertiaryLabelColor())
                 x.setFrame_(AppKit.NSMakeRect(SIDEBAR - 42, 13, 20, 20))
