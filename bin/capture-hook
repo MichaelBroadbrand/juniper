@@ -1,0 +1,17 @@
+#!/bin/sh
+# Claude Code hook used by Juniper: hide the overlay while Claude takes a screenshot, so the
+# overlay isn't in the picture. "pre" runs before every tool call, "post" after; the tool call
+# arrives as JSON on stdin. Anything that isn't a screenshot passes straight through.
+FLAG="${2:-$(cd "$(dirname "$0")/.." && pwd)/.hide-overlay}"   # where Juniper looks (passed by the app)
+input=$(cat)
+case "$input" in
+  *screencapture*|*creenshot*|*screen_capture*|*creen_capture*) ;;
+  *) exit 0 ;;
+esac
+if [ "$1" = pre ]; then
+  touch "$FLAG"
+  sleep 0.3        # give the overlay time to disappear before the screenshot happens
+else
+  rm -f "$FLAG"
+fi
+exit 0

@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Set up Juniper</title>
+<style>
+  :root {
+    --accent: #6B7FD7; --accent-hi: #8496E6; --ink: #101218; --glass: rgba(255,255,255,0.06);
+    --line: rgba(255,255,255,0.10); --text: #fff; --dim: rgba(255,255,255,0.62); --faint: rgba(255,255,255,0.38);
+    --green: #32D74B; --red: #FF453A; --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: var(--text);
+    background: var(--ink); -webkit-user-select: none; cursor: default; -webkit-font-smoothing: antialiased;
+  }
+  .glow { position: fixed; border-radius: 50%; filter: blur(60px); pointer-events: none; }
+  .glow.a { width: 620px; height: 620px; left: -180px; top: -260px; background: radial-gradient(circle, rgba(107,127,215,.38), transparent 65%); animation: drift 14s ease-in-out infinite alternate; }
+  .glow.b { width: 700px; height: 700px; right: -260px; bottom: -340px; background: radial-gradient(circle, rgba(52,64,140,.45), transparent 65%); animation: drift 18s ease-in-out infinite alternate-reverse; }
+  @keyframes drift { to { transform: translate(60px, 40px) scale(1.08); } }
+
+  /* step dots */
+  .dots { position: fixed; top: 22px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; z-index: 5; }
+  .dot { width: 7px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.18); transition: all .5s var(--ease); }
+  .dot.on { width: 26px; background: var(--accent); }
+  .dot.done { background: rgba(107,127,215,.55); }
+
+  .steps { position: fixed; inset: 56px 0 92px; }
+  .step { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+          padding: 0 120px; opacity: 0; pointer-events: none; transform: translateX(40px); filter: blur(6px);
+          transition: opacity .55s var(--ease), transform .7s var(--ease), filter .55s var(--ease); }
+  .step.on { opacity: 1; pointer-events: auto; transform: none; filter: none; }
+  /* The first page shows at once, even if the window opens behind others (macOS pauses hidden
+     web views); step transitions start once it has been on screen. */
+  body:not(.ready) .step { transition: none; }
+  .step.left { transform: translateX(-40px); }
+  h1 { font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 12px; }
+  h1 em { font-style: normal; background: linear-gradient(100deg, #D9DFFF, var(--accent) 50%, var(--accent-hi)); -webkit-background-clip: text; color: transparent; }
+  p.lead { color: var(--dim); font-size: 15.5px; max-width: 520px; }
+  .icon { width: 64px; height: 64px; border-radius: 20px; background: rgba(107,127,215,.14); box-shadow: 0 0 0 1px rgba(107,127,215,.3);
+          display: flex; align-items: center; justify-content: center; margin-bottom: 22px; }
+  .icon svg { width: 30px; height: 30px; stroke: var(--accent); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* the logo */
+  .logo { width: 110px; height: 110px; overflow: visible; margin-bottom: 26px; border-radius: 50%; background: radial-gradient(circle, rgba(107,127,215,.30) 0%, rgba(107,127,215,0) 68%); }
+  .logo .berry { fill: var(--accent); transform-box: fill-box; transform-origin: center; }
+  .logo .shine { fill: rgba(255,255,255,.32); }
+  .step.on .logo .berry { animation: pop .7s var(--ease) both; animation-delay: calc(.08s + var(--i) * .12s); }
+  .logo.think .berry { animation: think 1.2s ease-in-out infinite; animation-delay: calc(var(--i) * .4s); }
+  @keyframes pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes think { 0%, 100% { opacity: .35; transform: scale(.82); } 35% { opacity: 1; transform: scale(1); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* cards and rows */
+  .card { width: 100%; max-width: 560px; margin-top: 26px; padding: 18px 20px; border-radius: 18px; background: var(--glass);
+          box-shadow: 0 0 0 1px var(--line), 0 20px 50px rgba(0,0,0,.35); text-align: left; backdrop-filter: blur(20px); }
+  .row { display: flex; align-items: center; gap: 14px; }
+  .row + .row { margin-top: 12px; }
+  .grow { flex: 1; min-width: 0; }
+  .title { font-weight: 650; font-size: 15px; }
+  .sub { color: var(--faint); font-size: 13px; }
+  .pill { font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--dim); white-space: nowrap; }
+  .pill.ok { background: rgba(50,215,75,.14); color: var(--green); }
+  .pill.bad { background: rgba(255,69,58,.16); color: #FF7A70; }
+  .avatar { width: 40px; height: 40px; border-radius: 20px; background: #5A6BC4; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; flex-shrink: 0; }
+
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 11px; padding: 9px 18px; cursor: pointer; color: #fff; background: rgba(255,255,255,.1);
+           transition: transform .15s var(--ease), background .2s, box-shadow .2s, opacity .2s; white-space: nowrap; }
+  button:hover { background: rgba(255,255,255,.16); }
+  button:active { transform: scale(.96); }
+  button.primary { background: var(--accent); box-shadow: 0 6px 20px rgba(107,127,215,.35); }
+  button.primary:hover { background: var(--accent-hi); box-shadow: 0 8px 26px rgba(107,127,215,.5); }
+  button:disabled { opacity: .35; pointer-events: none; }
+  button.big { padding: 12px 26px; font-size: 16px; border-radius: 14px; }
+  a, .link { color: var(--accent); text-decoration: none; cursor: pointer; font-weight: 600; }
+  a:hover, .link:hover { color: var(--accent-hi); }
+
+  input[type=password], input[type=text] { font: inherit; width: 100%; padding: 10px 14px; border-radius: 11px; border: 0; outline: none; color: #fff;
+          background: rgba(0,0,0,.28); box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow .2s; -webkit-user-select: text; }
+  input:focus { box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+  .log { margin-top: 12px; height: 92px; overflow: hidden; border-radius: 10px; background: rgba(0,0,0,.3); padding: 8px 10px;
+         font: 11.5px/1.5 Menlo, monospace; color: var(--faint); display: flex; flex-direction: column; justify-content: flex-end; }
+  .spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.15); border-top-color: var(--accent); animation: spin .8s linear infinite; flex-shrink: 0; }
+  .hidden { display: none !important; }
+
+  /* voice choice */
+  .choices { display: grid; grid-template-columns: 1.35fr 1fr; gap: 14px; width: 100%; max-width: 640px; margin-top: 24px; text-align: left; }
+  .choice { padding: 16px 18px; border-radius: 18px; background: var(--glass); box-shadow: 0 0 0 1px var(--line); transition: box-shadow .25s, background .25s; cursor: pointer; }
+  .choice.sel { box-shadow: 0 0 0 2px var(--accent), 0 0 30px rgba(107,127,215,.25); background: rgba(107,127,215,.08); }
+  .choice .title { margin-bottom: 2px; }
+  .voices { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 12px; max-height: 150px; overflow-y: auto; padding-right: 2px; }
+  .voice { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 10px; background: rgba(255,255,255,.05); cursor: pointer; transition: background .2s, box-shadow .2s; }
+  .voice:hover { background: rgba(255,255,255,.09); }
+  .voice.sel { box-shadow: inset 0 0 0 1.5px var(--accent); background: rgba(107,127,215,.12); }
+  .voice .play { width: 24px; height: 24px; border-radius: 12px; background: rgba(107,127,215,.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .voice .play svg { width: 10px; height: 10px; fill: var(--accent); }
+  .voice .n { font-weight: 600; font-size: 13px; }
+  .voice .d { font-size: 11px; color: var(--faint); }
+
+  /* enrolment */
+  .orb { position: relative; width: 132px; height: 132px; margin: 6px 0 22px; }
+  .orb .core { position: absolute; inset: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #AEB9F3, var(--accent) 55%, #3B4A9E);
+               box-shadow: 0 10px 40px rgba(107,127,215,.5); display: flex; align-items: center; justify-content: center; transition: transform .08s linear; }
+  .orb .core svg { width: 34px; height: 34px; stroke: #fff; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .orb .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(107,127,215,.5); transition: transform .08s linear, opacity .08s linear; }
+  .orb.idle .core { filter: saturate(.4) brightness(.8); }
+  .quote { font-size: 26px; font-weight: 650; letter-spacing: -0.01em; min-height: 76px; max-width: 560px; transition: opacity .3s, transform .3s var(--ease); }
+  .quote.swap { opacity: 0; transform: translateY(8px); }
+  .progress { display: flex; gap: 8px; margin-top: 14px; }
+  .progress i { width: 34px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.14); transition: background .4s; }
+  .progress i.got { background: var(--accent); }
+  .progress i.now { background: rgba(107,127,215,.45); }
+  .shake { animation: shake .4s; }
+  @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+  .note { margin-top: 14px; color: var(--faint); font-size: 13px; min-height: 20px; }
+
+  /* projects */
+  .folders { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; margin-top: 24px; max-width: 600px; }
+  .folder { display: flex; align-items: center; gap: 9px; padding: 9px 14px; border-radius: 12px; background: var(--glass); box-shadow: 0 0 0 1px var(--line); cursor: pointer; transition: all .2s; }
+  .folder.sel { box-shadow: 0 0 0 1.5px var(--accent); background: rgba(107,127,215,.12); }
+  .folder .box { width: 16px; height: 16px; border-radius: 5px; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.35); display: flex; align-items: center; justify-content: center; }
+  .folder.sel .box { background: var(--accent); box-shadow: none; }
+  .folder.sel .box::after { content: ""; width: 7px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+  .folder .c { color: var(--faint); font-size: 12.5px; }
+
+  /* shortcuts */
+  .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; max-width: 620px; margin-top: 22px; }
+  .key { padding: 13px 14px; border-radius: 14px; background: var(--glass); box-shadow: 0 0 0 1px var(--line); text-align: left; opacity: 0; transform: translateY(12px); }
+  .step.on .key { animation: rise .6s var(--ease) both; animation-delay: calc(.25s + var(--i) * .06s); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+  .key .k { font-weight: 700; font-size: 16px; color: var(--accent); margin-bottom: 2px; }
+  .key .w { color: var(--dim); font-size: 13px; }
+  .check { display: flex; align-items: center; gap: 10px; margin-top: 18px; color: var(--dim); cursor: pointer; }
+  .check .box { width: 18px; height: 18px; border-radius: 6px; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.35); display: flex; align-items: center; justify-content: center; transition: all .2s; }
+  .check.sel .box { background: var(--accent); box-shadow: none; }
+  .check.sel .box::after { content: ""; width: 8px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+
+  .foot { position: fixed; left: 0; right: 0; bottom: 0; height: 92px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; }
+  .foot .skip { color: var(--faint); font-size: 13.5px; }
+</style>
+</head>
+<body>
+<div class="glow a"></div><div class="glow b"></div>
+<div class="dots" id="dots"></div>
+
+<div class="steps">
+  <!-- 0 welcome -->
+  <section class="step on" data-name="welcome">
+    {{LOGO}}
+    <h1>Hey <em>Juniper</em></h1>
+    <p class="lead">Claude Code, by voice, on your Mac. Let's get you set up. It takes about two minutes.</p>
+  </section>
+
+  <!-- 1 microphone -->
+  <section class="step" data-name="mic">
+    <div class="icon"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4M8 22h8"/></svg></div>
+    <h1>Let it <em>hear you</em></h1>
+    <p class="lead">Juniper listens for “hey Juniper” on this Mac. Your audio never leaves it: only the words of your request go to Claude.</p>
+    <div class="card"><div class="row">
+      <div class="grow"><div class="title">Microphone</div><div class="sub" id="micSub">Needed to hear “hey Juniper” and your requests</div></div>
+      <span class="pill" id="micPill">Not allowed yet</span>
+      <button class="primary" id="micBtn">Allow</button>
+    </div></div>
+  </section>
+
+  <!-- 2 Claude Code -->
+  <section class="step" data-name="claude">
+    <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div>
+    <h1>Connect <em>Claude Code</em></h1>
+    <p class="lead">Juniper runs the real Claude Code with your own account, so your settings, CLAUDE.md, MCP servers and skills all just work.</p>
+    <div class="card">
+      <div class="row" id="ccChecking"><div class="spinner"></div><div class="grow sub">Looking for Claude Code…</div></div>
+      <div id="ccMissing" class="hidden">
+        <div class="row"><div class="grow"><div class="title">Claude Code isn't installed yet</div><div class="sub">Installs with Anthropic's official installer</div></div><button class="primary" id="ccInstall">Install Claude Code</button></div>
+        <div class="log hidden" id="ccLog"></div>
+      </div>
+      <div id="ccSignedOut" class="hidden">
+        <div class="row"><div class="grow"><div class="title">Sign in to Claude</div><div class="sub" id="ccSoSub">Claude Code is installed. Sign in with your Claude account.</div></div><button class="primary" id="ccLogin">Sign in</button></div>
+        <div class="row hidden" id="ccWaiting" style="margin-top:14px"><div class="spinner"></div><div class="grow sub">Finish signing in in your browser (and Terminal, if it asks for a code). This updates by itself.</div></div>
+      </div>
+      <div id="ccReady" class="row hidden">
+        <div class="avatar" id="ccAvatar">C</div>
+        <div class="grow"><div class="title" id="ccEmail"></div><div class="sub" id="ccPlan"></div></div>
+        <span class="pill ok">Connected</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 voice -->
+  <section class="step" data-name="voice">
+    <h1>Choose Claude's <em>voice</em></h1>
+    <p class="lead">Replies are read out loud. You can switch any time from the menu bar.</p>
+    <div class="choices">
+      <div class="choice" id="chEleven">
+        <div class="title">ElevenLabs</div><div class="sub">Natural, expressive voices from your ElevenLabs account.</div>
+        <div id="elKeyRow" class="row" style="margin-top:12px">
+          <input type="password" id="elKey" placeholder="Paste your API key" autocomplete="off" spellcheck="false">
+          <button id="elConnect">Connect</button>
+        </div>
+        <div class="sub" id="elMsg" style="margin-top:8px">No key? <a id="elGet">Create one at elevenlabs.io</a></div>
+        <div class="voices hidden" id="voices"></div>
+      </div>
+      <div class="choice" id="chMac">
+        <div class="title">Mac voice</div><div class="sub">Free and works offline, using the voice built into macOS.</div>
+        <div style="margin-top:14px"><button id="macTest">▶ Hear it</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 enrolment -->
+  <section class="step" data-name="enroll">
+    <h1>Teach it <em>your voice</em></h1>
+    <p class="lead" id="enLead">Read five short lines in your normal voice, from where you usually sit. After this, “hey Juniper” only works for you.</p>
+    <div class="orb idle" id="orb" style="margin-top:22px"><div class="ring" id="ring"></div><div class="core" id="core"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4"/></svg></div></div>
+    <div class="quote" id="quote"> </div>
+    <div class="progress" id="progress"></div>
+    <div class="note" id="enNote"></div>
+  </section>
+
+  <!-- 5 projects -->
+  <section class="step" data-name="projects">
+    <div class="icon"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+    <h1>Where do your <em>projects</em> live?</h1>
+    <p class="lead">Say “new session for my-app” and Juniper opens Claude Code in that project's folder. Pick the folders your projects are in.</p>
+    <div class="folders" id="folders"></div>
+    <div style="margin-top:16px"><button id="addFolder">Add folder…</button></div>
+  </section>
+
+  <!-- 6 done -->
+  <section class="step" data-name="done">
+    {{LOGO}}
+    <h1>You're <em>all set</em></h1>
+    <p class="lead">Look for Juniper in your menu bar and the berries in the corner of your screen. Try: “Hey Juniper, what can you do?”</p>
+    <div class="keys">
+      <div class="key" style="--i:0"><div class="k">“Hey Juniper…”</div><div class="w">Ask anything</div></div>
+      <div class="key" style="--i:1"><div class="k">⌃⌥ Space</div><div class="w">Hold to talk</div></div>
+      <div class="key" style="--i:2"><div class="k">⌃⌥ T</div><div class="w">Type instead</div></div>
+      <div class="key" style="--i:3"><div class="k">⌃⌥ M</div><div class="w">Open mic on / off</div></div>
+      <div class="key" style="--i:4"><div class="k">⌃⌥ Esc</div><div class="w">Stop</div></div>
+      <div class="key" style="--i:5"><div class="k">Click the berries</div><div class="w">Open the conversation</div></div>
+    </div>
+    <div class="check" id="loginItem"><div class="box"></div>Open Juniper when I log in</div>
+    <div class="note" id="sttNote"></div>
+  </section>
+</div>
+
+<div class="foot">
+  <div><button id="back">Back</button></div>
+  <div class="row"><span class="link skip hidden" id="skip"></span><button class="primary big" id="next">Get started</button></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const send = (cmd, data = {}) => window.webkit?.messageHandlers?.hc?.postMessage({ cmd, ...data });
+const steps = [...document.querySelectorAll('.step')];
+const S = { step: 0, mic: 'ask', claude: null, voice: null, enrolled: false, skippedVoice: false, folders: new Map(), loginItem: false, macos: '', appleStt: true };
+let pollClaude = null;
+
+// step dots
+$('dots').innerHTML = steps.map(() => '<div class="dot"></div>').join('');
+const dots = [...document.querySelectorAll('.dot')];
+
+function canGo() {
+  const name = steps[S.step].dataset.name;
+  if (name === 'mic') return S.mic === 'granted';
+  if (name === 'claude') return !!(S.claude && S.claude.loggedIn);
+  if (name === 'voice') return !!S.voice;
+  if (name === 'enroll') return S.enrolled || S.skippedVoice;
+  return true;
+}
+function render() {
+  steps.forEach((s, i) => { s.classList.toggle('on', i === S.step); s.classList.toggle('left', i < S.step); });
+  dots.forEach((d, i) => { d.classList.toggle('on', i === S.step); d.classList.toggle('done', i < S.step); });
+  const name = steps[S.step].dataset.name;
+  $('back').style.visibility = S.step === 0 || name === 'done' ? 'hidden' : 'visible';
+  $('next').textContent = { welcome: 'Get started', done: 'Start Juniper', enroll: S.enrolled || S.skippedVoice ? 'Continue' : (enrolling ? 'Listening…' : 'Start recording') }[name] || 'Continue';
+  $('next').disabled = name === 'enroll' ? enrolling && !S.enrolled : !canGo();
+  const skip = { enroll: S.enrolled ? '' : 'Skip: anyone can wake it', projects: '' }[name] || '';
+  $('skip').textContent = skip; $('skip').classList.toggle('hidden', !skip);
+}
+function go(i) {
+  S.step = Math.max(0, Math.min(steps.length - 1, i));
+  const name = steps[S.step].dataset.name;
+  if (name === 'mic') send('mic_status');
+  if (name === 'claude') { send('claude_status'); }
+  if (name === 'voice' && !S.elevenTried) { S.elevenTried = true; send('eleven_key', { key: '' }); }
+  if (name === 'projects' && !S.foldersLoaded) { S.foldersLoaded = true; send('projects_suggest'); }
+  render();
+}
+$('next').onclick = () => {
+  const name = steps[S.step].dataset.name;
+  if (name === 'enroll' && !S.enrolled && !S.skippedVoice) { startEnroll(); return; }
+  if (name === 'projects') send('projects_set', { paths: [...S.folders].filter(([, on]) => on).map(([p]) => p) });
+  if (name === 'done') { send('login_item', { on: S.loginItem }); send('finish'); $('next').disabled = true; $('next').textContent = 'Starting…'; return; }
+  go(S.step + 1);
+};
+$('back').onclick = () => go(S.step - 1);
+$('skip').onclick = () => {
+  if (steps[S.step].dataset.name === 'enroll') { S.skippedVoice = true; send('enroll_skip'); enrolling = false; go(S.step + 1); }
+};
+
+// microphone
+$('micBtn').onclick = () => { $('micBtn').disabled = true; send('mic_request'); };
+function showMic(status) {
+  S.mic = status;
+  const pill = $('micPill');
+  pill.textContent = { granted: 'Allowed', denied: 'Blocked', restricted: 'Blocked', ask: 'Not allowed yet' }[status];
+  pill.className = 'pill' + (status === 'granted' ? ' ok' : status === 'denied' || status === 'restricted' ? ' bad' : '');
+  $('micBtn').disabled = false;
+  $('micBtn').classList.toggle('hidden', status === 'granted');
+  $('micBtn').textContent = status === 'denied' ? 'Open Settings' : 'Allow';
+  $('micSub').textContent = status === 'denied' ? 'Turn on Juniper in System Settings › Privacy & Security › Microphone' : 'Needed to hear “hey Juniper” and your requests';
+  render();
+}
+
+// Claude Code
+function showClaude(c) {
+  S.claude = c;
+  ['ccChecking', 'ccMissing', 'ccSignedOut', 'ccReady'].forEach((id) => $(id).classList.add('hidden'));
+  if (!c.installed) $('ccMissing').classList.remove('hidden');
+  else if (!c.loggedIn) { $('ccSignedOut').classList.remove('hidden'); $('ccSoSub').textContent = `Claude Code ${c.version} is installed. Sign in with your Claude account.`; }
+  else {
+    $('ccReady').classList.remove('hidden');
+    $('ccEmail').textContent = c.email || 'Signed in';
+    $('ccAvatar').textContent = (c.email || 'C')[0].toUpperCase();
+    $('ccPlan').textContent = [c.org, c.plan && c.plan[0].toUpperCase() + c.plan.slice(1) + ' plan', 'Claude Code ' + c.version].filter(Boolean).join(' · ');
+    if (pollClaude) { clearInterval(pollClaude); pollClaude = null; }
+  }
+  render();
+}
+$('ccInstall').onclick = () => { $('ccInstall').disabled = true; $('ccInstall').textContent = 'Installing…'; $('ccLog').classList.remove('hidden'); send('claude_install'); };
+$('ccLogin').onclick = () => {
+  send('claude_login'); $('ccWaiting').classList.remove('hidden'); $('ccLogin').textContent = 'Open again';
+  if (!pollClaude) pollClaude = setInterval(() => send('claude_status'), 2500);
+};
+
+// voice
+const getKey = () => send('open_url', { url: 'https://elevenlabs.io/app/settings/api-keys' });
+$('elGet').onclick = getKey;
+$('elConnect').onclick = () => { const k = $('elKey').value.trim(); if (!k) return; $('elConnect').disabled = true; $('elConnect').textContent = 'Checking…'; send('eleven_key', { key: k }); };
+$('elKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('elConnect').click(); });
+$('chMac').onclick = (e) => { if (e.target.id === 'macTest') return; pickVoice({ mac: true }); };
+$('macTest').onclick = () => { pickVoice({ mac: true }); send('mac_voice_test'); };
+function pickVoice(v) {
+  S.voice = v;
+  $('chMac').classList.toggle('sel', !!v.mac);
+  $('chEleven').classList.toggle('sel', !v.mac);
+  document.querySelectorAll('.voice').forEach((el) => el.classList.toggle('sel', !v.mac && el.dataset.id === v.id));
+  send('voice_choose', v.mac ? { mac: true } : { id: v.id });
+  render();
+}
+function showEleven(r) {
+  $('elConnect').disabled = false; $('elConnect').textContent = 'Connect';
+  if (!r.ok) {
+    if (r.message) {
+      // Any problem with ElevenLabs: carry on with the Mac voice (a key can be added later).
+      $('elMsg').innerHTML = `<span style="color:#FF7A70">${r.message}</span> Using the Mac voice for now. <a id="elGet2">Get a key</a>`;
+      $('elGet2').onclick = getKey;          // (the first link went with the old message)
+      if (r.fallback) pickVoice({ mac: true });
+    }
+    return;
+  }
+  $('elKeyRow').classList.add('hidden');
+  const quota = r.limit ? ` · ${Math.round((r.limit - r.used) / 1000)}k characters left this month` : '';
+  $('elMsg').innerHTML = `<span style="color:var(--green)">✓ Connected</span>${r.tier ? ' · ' + r.tier : ''}${quota}`;
+  const box = $('voices'); box.classList.remove('hidden');
+  box.innerHTML = r.voices.map((v) => `<div class="voice" data-id="${v.id}" data-preview="${v.preview || ''}"><div class="play"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></div><div><div class="n">${v.name}</div><div class="d">${v.desc}</div></div></div>`).join('');
+  box.querySelectorAll('.voice').forEach((el) => el.onclick = () => {
+    pickVoice({ id: el.dataset.id });
+    if (el.dataset.preview) send('preview', { url: el.dataset.preview });
+  });
+  if (r.exhausted) {
+    $('elMsg').innerHTML = `<span style="color:#FF7A70">This month's ElevenLabs characters are used up.</span> Using the Mac voice until they reset.`;
+    pickVoice({ mac: true });
+    return;
+  }
+  pickVoice({ id: r.current && r.voices.some((v) => v.id === r.current) ? r.current : r.voices[0].id });
+}
+
+// enrolment
+let enrolling = false;
+const N_LINES = 5;
+$('progress').innerHTML = Array.from({ length: N_LINES }, () => '<i></i>').join('');
+function startEnroll() { enrolling = true; $('orb').classList.remove('idle'); $('enNote').textContent = 'Read the line out loud when it appears.'; send('enroll_start'); render(); }
+function setLine(i, text) {
+  const q = $('quote'); q.classList.add('swap');
+  setTimeout(() => { q.textContent = '“' + text + '”'; q.classList.remove('swap'); }, 220);
+  [...$('progress').children].forEach((el, k) => { el.classList.toggle('now', k === i); });
+}
+function level(v) {
+  $('core').style.transform = `scale(${1 + v * 0.18})`;
+  $('ring').style.transform = `scale(${1 + v * 0.35})`; $('ring').style.opacity = 0.35 + v * 0.65;
+}
+
+// projects
+function drawFolders() {
+  $('folders').innerHTML = [...S.folders].map(([p, on]) => `<div class="folder${on ? ' sel' : ''}" data-p="${p}"><div class="box"></div><span>${S.labels[p] || p}</span>${S.counts[p] != null ? `<span class="c">${S.counts[p]} folders</span>` : ''}</div>`).join('') || '<div class="sub">No folders yet. Add the one your projects live in.</div>';
+  $('folders').querySelectorAll('.folder').forEach((el) => el.onclick = () => { S.folders.set(el.dataset.p, !S.folders.get(el.dataset.p)); drawFolders(); });
+}
+S.labels = {}; S.counts = {};
+$('addFolder').onclick = () => send('projects_pick');
+$('loginItem').onclick = () => { S.loginItem = !S.loginItem; $('loginItem').classList.toggle('sel', S.loginItem); };
+
+// messages from Juniper
+window.hc = {
+  on(event, d) {
+    if (event === 'hello') { S.macos = d.macos; S.appleStt = d.apple_stt; if (!d.apple_stt) $('sttNote').textContent = 'Your first request downloads the speech-recognition model (about 150 MB).'; }
+    else if (event === 'mic') showMic(d.status);
+    else if (event === 'claude') showClaude(d);
+    else if (event === 'install_line') { const l = $('ccLog'); const div = document.createElement('div'); div.textContent = d; l.appendChild(div); while (l.children.length > 6) l.firstChild.remove(); }
+    else if (event === 'install_done' && !d.ok) { $('ccInstall').disabled = false; $('ccInstall').textContent = 'Try again'; }
+    else if (event === 'eleven') showEleven(d);
+    else if (event === 'enroll_line') setLine(d.i, d.text);
+    else if (event === 'level') level(d);
+    else if (event === 'enroll_retry') { $('quote').classList.add('shake'); setTimeout(() => $('quote').classList.remove('shake'), 400); $('enNote').textContent = "Didn't catch that. Once more, a little louder."; }
+    else if (event === 'enroll_got') { $('progress').children[d.i].classList.add('got'); $('enNote').textContent = d.i + 1 < N_LINES ? 'Got it.' : ''; }
+    else if (event === 'enroll_calibrating') { $('quote').textContent = 'Learning your voice…'; level(0); $('enNote').innerHTML = '<span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:8px"></span>Comparing it with other voices'; }
+    else if (event === 'enroll_done') {
+      S.enrolled = true; enrolling = false; $('orb').classList.add('idle');
+      $('quote').innerHTML = '<span style="color:var(--green)">✓</span> Your voice is ready';
+      $('enNote').textContent = d.clear ? `Your recordings matched at ${Math.min(...d.yours).toFixed(2)} or more; other voices only reached ${d.closest.toFixed(2)}.`
+        : 'Some recordings were close to other voices. It will still work; set up again somewhere quieter for a clearer match.';
+      render();
+    }
+    else if (event === 'projects') { d.suggest.forEach((s) => { S.folders.set(s.path, d.chosen.length ? d.chosen.some((c) => s.label === c || s.path === c) : ['~/Developer', '~/Projects', '~/projects', '~/Code', '~/code'].includes(s.label)); S.labels[s.path] = s.label; S.counts[s.path] = s.count; }); drawFolders(); }
+    else if (event === 'picked') { d.forEach((p) => S.folders.set(p, true)); drawFolders(); }
+    else if (event === 'error') { console.log(d); if (d.cmd === 'enroll_start') { enrolling = false; $('enNote').textContent = 'Recording failed: ' + d.message; render(); } }
+  },
+};
+send('hello');
+go(0);
+requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.add('ready')));
+</script>
+</body>
+</html>

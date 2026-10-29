@@ -1,0 +1,114 @@
+# Juniper settings. Restart after changing.
+
+# Folder the "general" session works in (its CLAUDE.md and .claude/ settings apply). "~" = home.
+working_dir = "~"
+
+# Starting permission mode for new sessions (each session can switch with the mode chip, Shift-Tab,
+# /mode or by voice). "auto" lets a safety check approve routine actions. "manual" asks you first
+# (in the overlay, or say yes/no). Also "acceptEdits", "plan", "bypassPermissions".
+permission_mode = "auto"
+
+# Leave empty for your normal default model, or e.g. "sonnet", "opus".
+model = ""
+
+# Sessions last until you clear them. When you say e.g. "hey Juniper, new session for my-app",
+# every folder directly inside these counts as a project to pick from.
+project_roots = []
+# Model that works out session commands ("switch to my-app", "list my sessions").
+router_model = "haiku"
+
+# After Claude finishes speaking, listen this many seconds for a follow-up question without
+# "hey Juniper" (the overlay says "Ask a follow-up…"). Needs open mic. 0 = off.
+followup_seconds = 8
+
+# After a bare "hey Juniper", how long to wait for the request.
+listen_seconds = 6
+
+# Speaking voice: "elevenlabs" (key saved in your Keychain during setup) or "say" (the Mac voice).
+# ElevenLabs falls back to the Mac voice if it fails or you're offline.
+tts = "elevenlabs"
+# Sarah (American woman). Other voices you can use:
+#   Eric cjVigY5qzO86Huf0OWal   Brian nPczCjzI2devNBz1zQrb   Chris iP95p4xoKVk53GoZ742B
+#   Sarah EXAVITQu4vr4xnSDxMaL  Matilda XrExE9yKIg1WjnnlVkGX Jessica cgSgspJ2msm6clMCkdW9
+#   George JBFqnCBsd6RMkjVDRZzb Daniel onwK4e9ZLuTAKqWW03F9  Alice Xb7hH8MSUJpSbSDYk0k2
+#   Lily pFZP5JQG7iQjIQuC4Bku
+eleven_voice_id = "EXAVITQu4vr4xnSDxMaL"
+eleven_model = "eleven_v4_turbo"
+
+# Fallback Mac voice (see `say -v '?'`), empty = system voice. Words per minute.
+voice = ""
+speech_rate = 200
+
+# Open mic = always listening for "hey Juniper". Off = the mic is closed until you use
+# push-to-talk. The menu bar and mic_key switch it; your last choice is remembered.
+open_mic = true
+# Hold to talk (or tap, then talk until you pause). Needs ctrl or cmd in it.
+ptt_key = "ctrl+option+space"
+mic_key = "ctrl+option+m"
+# Stop talking and cancel the running task.
+stop_key = "ctrl+option+escape"
+
+# Floating panel showing what you said and Claude's reply. Seconds it stays after the reply.
+overlay = true
+overlay_seconds = 8
+
+# Small Juniper logo (the berries), always there (top-right until you drag it somewhere else).
+# It shows what's happening and a dot for new replies in other sessions; click it to open the
+# conversation. Toggle with logo_key or the menu; your last choice is remembered.
+show_logo = true
+# Starting size of the logo in points; the "Logo size" slider in the menu changes (and remembers) it.
+logo_size = 48
+logo_key = "ctrl+option+o"
+# Open the overlay ready to type a request (Enter sends, Esc folds it away).
+type_key = "ctrl+option+t"
+
+# Read answers aloud. Both can also be switched from the menu (your choice is remembered).
+speak_answers = true          # false = everything silent; read the overlay instead
+speak_typed = true            # false = answers to typed requests stay silent
+
+# What you call it: "hey Juniper" wakes it. Another name works if the wake-word model knows how
+# to say it (most English words and names do; it says so at startup if not).
+wake_name = "Juniper"
+
+# How to spot "hey Juniper":
+#   "sherpa"  – a tiny keyword-spotting model; almost no CPU, nothing transcribed until it fires.
+#   "whisper" – transcribe everything said and look for "hey Juniper" in the text (heavier).
+wake_engine = "sherpa"
+# sherpa: lower threshold = triggers more easily (more false alarms); higher boost = same.
+wake_threshold = 0.15
+wake_boost = 1.5
+# Exact pronunciations to listen for instead of wake_name, e.g. ["HH EY1 K AH0 M P Y UW1 T ER0 @hey_computer"]
+# for "hey computer" (HH EY1 = "hey"; CMU phonemes). Empty = worked out from wake_name.
+wake_keywords = []
+
+# Speech to text for your requests, on this Mac:
+#   "apple"   – Apple's on-device recognizer (macOS 26), best on your voice in testing, ~0.2 s.
+#   "whisper" – Whisper (command_model below). Also the fallback if Apple's fails.
+stt_engine = "apple"
+# Apple language model, e.g. en-GB, en-US, en-AU, en-ZA. Empty = this Mac's language and region.
+stt_locale = ""
+
+# Whisper models, run locally. command_model transcribes your request; wake_model is only
+# used with wake_engine = "whisper", to check every phrase for "hey Juniper".
+# Options: tiny.en, base.en, small.en, medium.en, large-v3-turbo (most accurate, ~3s slower)
+wake_model = "base.en"
+command_model = "base.en"
+
+# Names speech recognition should spell correctly (and Claude should expect), comma separated.
+vocabulary = "Claude Code"
+
+# Microphone name or index from --list-devices; empty = system default.
+input_device = ""
+
+# Speech detection: 0 (lenient) to 3 (strict). Pause length that ends a request.
+vad_level = 2
+end_silence_ms = 1000
+max_utterance_seconds = 30
+
+chimes = true
+
+# Only respond to your voice (like "Hey Siri"). Teach it your voice in the setup (menu > Set up again…).
+voice_check = true
+# How closely a request must match your voice profile, 0 to 1. 0 = use the value worked out
+# when you enrolled. Raise it if other people can wake it; lower it if it ignores you.
+voice_threshold = 0

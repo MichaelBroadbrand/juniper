@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs Juniper from this folder with its log in the terminal (the menu bar icon and keys work too).
+dir="$(cd "$(dirname "$0")" && pwd)"
+exec "$dir/.venv/bin/python" "$dir/juniper.py" "$@"

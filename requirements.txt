@@ -1,0 +1,12 @@
+# What Juniper needs, pinned to the versions it is tested with (the packaged app bundles the same).
+numpy==2.4.6
+sounddevice==0.5.6
+webrtcvad-wheels==2.0.14.post1
+sherpa-onnx==2.0.0
+faster-whisper==1.2.1
+rumps==0.4.0
+pyobjc-core==12.2.2
+pyobjc-framework-Cocoa==12.2.2
+pyobjc-framework-Quartz==12.2.2
+pyobjc-framework-WebKit==12.2.2
+pyobjc-framework-AVFoundation==12.2.2

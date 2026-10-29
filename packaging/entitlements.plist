@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- What Juniper may do under the hardened runtime that notarization requires: listen to the
+     microphone, and drive Terminal and System Events through osascript (the Claude Code sign-in,
+     the login item and notifications). -->
+<plist version="1.0"><dict>
+  <key>com.apple.security.device.audio-input</key><true/>
+  <key>com.apple.security.automation.apple-events</key><true/>
+</dict></plist>

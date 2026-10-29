@@ -1,0 +1,30 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Downloaded models (scripts/fetch-models.sh) and built helpers
+models/
+bin/apple-stt
+
+# Local builds
+Juniper Dev.app/
+packaging/build/
+packaging/dist/
+packaging/cache/
+packaging/release/
+packaging/releases.json
+
+# Personal data, in case JUNIPER_HOME points inside the repo
+.env
+.env.*
+config.toml
+sessions.json
+voiceprint.npz
+.state.json
+*.log
+*.err
+debug/
+attachments/
+
+.DS_Store
