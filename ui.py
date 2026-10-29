@@ -3087,7 +3087,16 @@ class MenuBar(rumps.App):
         if not AppKit.NSMenu.menuBarVisible():          # hidden menu bar, full-screen app: look later
             Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(30, False, lambda t: self.check_icon_shown(again))
             return
-        if self.icon_shown() or get_state().get("menubar_hint_off"):
+        shown = self.icon_shown()
+        win = self._nsapp.nsstatusitem.button().window()
+        if win is not None:      # what macOS says about it, for anyone working out why it's missing
+            f = win.frame()
+            log("menubar", f"icon {'shown' if shown else 'hidden'}: x={f.origin.x:.0f} width={f.size.width:.0f} "
+                           f"visible={bool(win.isVisible())} "
+                           f"uncovered={bool(win.occlusionState() & AppKit.NSWindowOcclusionStateVisible)}", "dim")
+        else:
+            log("menubar", "icon hidden: macOS gave it no window", "dim")
+        if shown or get_state().get("menubar_hint_off"):
             return
         if again:                                        # a moment's reshuffle (an icon appearing) isn't worth a dialog
             Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(4, False, lambda t: self.check_icon_shown(False))
