@@ -219,6 +219,27 @@ def save_secret(name, value):
                         "-j", "Juniper's ElevenLabs key"], capture_output=True, check=True)
 
 
+def retire_old_app(app):
+    """Juniper replaces the app it used to be: if that's still installed or running, quit it and move
+    it to the Bin (where Put Back restores it), so the two don't both listen, or both start at login.
+    Its settings, sessions and voice profile have already come across (_migrate)."""
+    running = subprocess.run(["pkill", "-x", "HeyClaude"], capture_output=True).returncode == 0
+    old = [d / f"{OLD_NAME}.app" for d in (Path("/Applications"), Path.home() / "Applications")
+           if (d / f"{OLD_NAME}.app").exists()]
+    if not (running or old):
+        return
+    time.sleep(2)                       # let it finish quitting
+    from Foundation import NSURL, NSFileManager
+    kept = [str(a) for a in old if not NSFileManager.defaultManager().trashItemAtURL_resultingItemURL_error_(
+        NSURL.fileURLWithPath_(str(a)), None, None)[0]]
+    log("setup", f"retired {OLD_NAME}: {'quit it, ' if running else ''}"
+                 f"{'moved it to the Bin' if len(kept) < len(old) else 'left it in place'}"
+                 f"{f' (could not move {kept})' if kept else ''}", "dim")
+    app.notify(f"{OLD_NAME} is now Juniper", "Your settings and sessions came across. "
+               + (f"Delete {OLD_NAME} from Applications when you can." if kept
+                  else f"{OLD_NAME} is in the Bin."))
+
+
 def system_locale():
     """This Mac's language and region as a speech-recognition locale, e.g. "en-GB"."""
     out = subprocess.run(["defaults", "read", "-g", "AppleLocale"], capture_output=True, text=True).stdout.strip()
@@ -2471,6 +2492,7 @@ class App:
         chime(self.cfg, "Purr")
         import updater
         self.updater = updater.start(self)   # over-the-air updates (the packaged app only)
+        threading.Thread(target=retire_old_app, args=(self,), daemon=True).start()
 
     def shutdown(self):
         for r in self.runners.values():
