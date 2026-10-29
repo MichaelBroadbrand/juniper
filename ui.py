@@ -557,8 +557,16 @@ class _Actions(AppKit.NSObject):
 
     def deleteSession_(self, sender):
         if _ui:
-            _ui.sidebar_delete(sender.representedObject() if isinstance(sender, AppKit.NSMenuItem)
-                               else sender.superview().session_name)
+            _ui.ask_delete(sender.representedObject() if isinstance(sender, AppKit.NSMenuItem)
+                           else sender.superview().session_name)
+
+    def confirmDelete_(self, sender):
+        if _ui:
+            _ui.sidebar_delete(sender.superview().session_name)
+
+    def cancelDelete_(self, sender):
+        if _ui:
+            _ui.overlay.ask_delete(None)
 
     def clearSession_(self, sender):
         if _ui:
@@ -896,6 +904,7 @@ class Overlay:
         self.sidebar.layer().setBackgroundColor_(AppKit.NSColor.colorWithWhite_alpha_(1, 0.035).CGColor())
         self.sidebar.layer().setMasksToBounds_(True)
         self.sidebar_open, self.sidebar_key = False, None
+        self.deleting = None            # (session, until): its sidebar row is asking "Delete …?"
         head = _label(12, AppKit.NSFontWeightSemibold, AppKit.NSColor.secondaryLabelColor())
         head.setStringValue_("Sessions")
         head.setFrame_(AppKit.NSMakeRect(16, HEAD_C - 8, 120, 16))
@@ -1185,11 +1194,17 @@ class Overlay:
         """How tall the overlay should be (at least) to show n sessions in the sidebar."""
         return CIRCLE + n * 50 + 10
 
+    def ask_delete(self, name):
+        """Turn a session's sidebar row into "Delete …? Delete / Cancel" (None puts it back)."""
+        self.deleting = (name, time.time() + 6) if name else None
+        self.sidebar_key = None
+
     def _sidebar(self, rows, height):
         """One row per session: name, folder, and whether it's working, waiting on you, or has a reply.
         The list scrolls when there are more than fit."""
         self.side_scroll.setFrame_(AppKit.NSMakeRect(0, CIRCLE, SIDEBAR, max(0, height - CIRCLE)))
-        key = tuple(rows)
+        asking = self.deleting[0] if self.deleting and time.time() < self.deleting[1] else None
+        key = (tuple(rows), asking)
         if key == self.sidebar_key:
             return
         self.sidebar_key = key
@@ -1220,6 +1235,22 @@ class Overlay:
                     AppKit.NSForegroundColorAttributeName: colours.get(status, AppKit.NSColor.secondaryLabelColor())}))
                 f.setAttributedStringValue_(text)
             f.setFrame_(AppKit.NSMakeRect(10, 25, SIDEBAR - 36, 15))
+            if name == asking:
+                # Deleting asks in the row itself: Delete (red) or Cancel, and it lets go after a few seconds.
+                row.layer().setBackgroundColor_(AppKit.NSColor.systemRedColor().colorWithAlphaComponent_(0.14).CGColor())
+                n.setStringValue_(f"Delete {name}?")
+                n.setFrame_(AppKit.NSMakeRect(10, 4, SIDEBAR - 36, 18))
+                row.addSubview_(n)
+                x = 10
+                for b in (_pill("Delete", self.actions, "confirmDelete:", 0, danger=True),
+                          _pill("Cancel", self.actions, "cancelDelete:", 0)):
+                    b.setFrame_(AppKit.NSMakeRect(x, 23, b.frame().size.width - 4, 19))
+                    b.layer().setCornerRadius_(6)
+                    x += b.frame().size.width + 6
+                    row.addSubview_(b)
+                self.side_doc.addSubview_(row)
+                y += 50
+                continue
             row.addSubview_(n)
             row.addSubview_(f)
             if name != "general":                       # general always stays; it can only be cleared
@@ -2758,21 +2789,15 @@ class MenuBar(rumps.App):
     def sidebar_pick(self, name):
         threading.Thread(target=self.app.switch_session, args=(name,), daemon=True).start()
 
+    def ask_delete(self, name):
+        """The ✕ on a session, or Delete session in its right-click menu: its row asks first."""
+        if not self.overlay.sidebar_open:
+            self.overlay.sidebar_open = True
+            self.open_typing()
+        self.overlay.ask_delete(name)
+
     def sidebar_delete(self, name):
-        """The ✕ on a session, or Delete session when you right-click it: asks first, since a click
-        is easy to make by mistake and Juniper can't bring the session back."""
-        alert = AppKit.NSAlert.alloc().init()
-        alert.setIcon_(AppKit.NSImage.imageWithSize_flipped_drawingHandler_(
-            (64, 64), False, lambda rect: draw_berries(32, 32, 52, ACCENT) or True))
-        alert.setMessageText_(f"Delete the {name} session?")
-        alert.setInformativeText_("It comes off your list, and anything it's doing stops. The conversation itself "
-                                  "is kept: claude --resume in its folder can still open it.")
-        delete = alert.addButtonWithTitle_("Delete")
-        delete.setHasDestructiveAction_(True)
-        alert.addButtonWithTitle_("Cancel")
-        AppKit.NSApp.activateIgnoringOtherApps_(True)
-        if alert.runModal() != AppKit.NSAlertFirstButtonReturn:
-            return
+        self.overlay.ask_delete(None)
         self.overlay.drafts.pop(name, None)
         threading.Thread(target=self.app.delete_session, args=(name,), daemon=True).start()
 
