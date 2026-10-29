@@ -235,6 +235,10 @@ def retire_old_app(app):
     log("setup", f"retired {OLD_NAME}: {'quit it, ' if running else ''}"
                  f"{'moved it to the Bin' if len(kept) < len(old) else 'left it in place'}"
                  f"{f' (could not move {kept})' if kept else ''}", "dim")
+    # Once is enough: an old copy that can't be moved (another user's, say) is still there next time.
+    if kept and not running and get_state().get("retire_told"):
+        return
+    set_state(retire_told=True)
     app.notify(f"{OLD_NAME} is now Juniper", "Your settings and sessions came across. "
                + (f"Delete {OLD_NAME} from Applications when you can." if kept
                   else f"{OLD_NAME} is in the Bin."))
