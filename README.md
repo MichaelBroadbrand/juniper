@@ -1,13 +1,14 @@
 # Juniper
 
-**Talk to Claude Code from your Mac's menu bar.** Say "hey Juniper, …" (or hold a key) and your
-request goes to the real Claude Code on your Mac: your own login, `CLAUDE.md`, MCP servers,
-skills and hooks. The reply is spoken aloud and shown in a small floating overlay, with every
-command Claude runs and every file it changes.
+**Talk to your AI coding agent from your Mac's menu bar.** Say "hey Juniper, …" (or hold a key)
+and your request goes to the real Claude Code on your Mac, with Claude or the AI you prefer
+(DeepSeek, Qwen, Kimi, GLM, OpenRouter, a model on your Mac with Ollama, or any compatible API).
+Your `CLAUDE.md`, MCP servers, skills and hooks all apply. The reply is spoken aloud and shown in
+a small floating overlay, with every command it runs and every file it changes.
 
 Your audio stays on your Mac. A tiny keyword model listens for "hey Juniper" using under 1% of
 one CPU core, a voice check makes sure it's you, and on-device speech recognition turns your
-request into text. Only that text goes to Claude, and only Claude's reply goes to the voice
+request into text. Only that text goes to your AI, and only its reply goes to the voice
 service (ElevenLabs, or the Mac's own voice, which never leaves your Mac).
 
 > Juniper is an independent open-source project. It isn't made, endorsed or supported by
@@ -22,14 +23,15 @@ opens like any other download.
 On first open, a short setup walks you through:
 
 1. **The microphone.**
-2. **Claude Code:** it finds your install, or installs it with Anthropic's official installer,
-   then signs you in with your Claude account.
+2. **Your AI:** pick the ones you use and connect each: sign in with your Claude subscription, or
+   paste an API key (it goes in your Keychain). It installs Claude Code if you don't have it.
 3. **A voice:** your own ElevenLabs key (stored in your Keychain), or the free Mac voice.
 4. **Teaching it your voice:** read five lines, so that "hey Juniper" only works for you.
 5. **Your projects folder**, so you can say "new session for my-app".
 
-**Requirements:** an Apple Silicon Mac on macOS 14 or later, and a Claude account that can use
-Claude Code. macOS 26 uses Apple's on-device speech recognition; older versions download a
+**Requirements:** an Apple Silicon Mac on macOS 14 or later, and one of: a Claude subscription,
+an API key for Anthropic, DeepSeek, Qwen (Alibaba Cloud Model Studio), Kimi, GLM (Z.ai) or
+OpenRouter, Ollama with a model, or any Anthropic-compatible endpoint. macOS 26 uses Apple's on-device speech recognition; older versions download a
 Whisper model (about 150 MB) the first time it's needed.
 
 ## Using it
@@ -61,6 +63,26 @@ them), the **model** and a **context** gauge. When Claude needs permission, want
 approved, or asks you something, a card appears: press a button, say "yes"/"no", or type.
 Type `/` for commands: Juniper's own (`/clear`, `/compact`, `/mode`, `/model`, `/sessions`,
 `/new`, `/stop`, `/help`) plus Claude Code's commands and your skills.
+
+## Your AI
+
+Juniper drives Claude Code, Anthropic's coding agent, which does the actual work on your Mac.
+The model behind it is your choice:
+
+| AI | How you connect |
+|---|---|
+| Claude | Your Claude subscription (Pro or Max), or an Anthropic API key |
+| DeepSeek, Qwen, Kimi, GLM, OpenRouter | An API key from that provider; Claude Code talks to its Anthropic-compatible API |
+| Ollama | A model on your Mac; nothing leaves it |
+| Other | Any Anthropic-compatible address (a company gateway, LiteLLM, …) |
+
+Connect them in the setup, or later from the menu bar (Add or change AIs…). Each session keeps
+its AI; the model chip under the text box switches model or AI (a new AI starts the
+conversation fresh), as do `/ai deepseek` and `/model …`, or saying "new session for my-app on
+DeepSeek". **We never see your API keys:** Juniper has no servers. Keys live in your login
+Keychain, Claude Code reads one only when it needs it (they're never in the environment of the
+commands it runs), and it's sent only to its own provider. With another provider, nothing goes
+to Anthropic.
 
 ## Sessions
 
@@ -105,6 +127,7 @@ Testing without talking: `./juniper --file clip.wav --mute --dry-run`.
 | File | What it does |
 |---|---|
 | `juniper.py` | Microphone, wake word, voice check, speech recognition, one long-lived Claude Code process per session, speaking |
+| `connections.py` | The AIs Juniper can use, the ones you've connected, checking keys and listing models |
 | `ui.py` | Menu bar icon and panel, overlay, logo, global keys |
 | `onboarding.py`, `onboarding/` | The first-run setup (a web page in a native window) |
 | `bin/approve_mcp.py` | A tiny MCP server Claude Code calls for permission, which asks you in the overlay |

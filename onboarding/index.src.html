@@ -137,6 +137,39 @@
   .check.sel .box { background: var(--accent); box-shadow: none; }
   .check.sel .box::after { content: ""; width: 8px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
 
+  /* your AI */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; width: 100%; max-width: 700px; margin-top: 22px; text-align: left; }
+  .tile { display: flex; gap: 10px; align-items: center; padding: 12px; border-radius: 14px; background: var(--glass); box-shadow: 0 0 0 1px var(--line);
+          cursor: pointer; transition: box-shadow .2s, background .2s; }
+  .tile:hover { background: rgba(255,255,255,.09); }
+  .tile.sel { box-shadow: 0 0 0 2px var(--accent); background: rgba(107,127,215,.12); }
+  .tile .title { font-size: 14px; } .tile .sub { font-size: 11.5px; line-height: 1.3; }
+  .badge { width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+           font-weight: 700; font-size: 14px; background: rgba(107,127,215,.22); color: #D9DFFF; }
+  .tile.sel .badge { background: var(--accent); color: #fff; }
+  .connects { width: 100%; max-width: 620px; margin-top: 14px; max-height: 372px; overflow-y: auto; text-align: left; padding: 2px 6px 2px 2px; }
+  .conn { padding: 14px 16px; border-radius: 16px; background: var(--glass); box-shadow: 0 0 0 1px var(--line); }
+  .conn + .conn { margin-top: 10px; }
+  .conn.ok { box-shadow: 0 0 0 1px rgba(50,215,75,.35); }
+  .conn .body { margin-top: 10px; }
+  .conn input + input { margin-top: 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ways { display: flex; gap: 8px; margin-top: 10px; }
+  .way { flex: 1; padding: 8px 12px; border-radius: 11px; background: rgba(255,255,255,.05); cursor: pointer; font-weight: 600; font-size: 13.5px; }
+  .way span { display: block; font-weight: 400; font-size: 11.5px; color: var(--faint); }
+  .way.sel { box-shadow: inset 0 0 0 1.5px var(--accent); background: rgba(107,127,215,.12); }
+  .msg { margin-top: 8px; font-size: 12.5px; color: var(--faint); min-height: 0; }
+  .msg.bad { color: #FF7A70; } .msg.good { color: var(--green); }
+  select { font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 10px; border: 0; color: #fff; background: rgba(0,0,0,.28);
+           box-shadow: inset 0 0 0 1px var(--line); outline: none; max-width: 300px; }
+  .modelrow { margin-top: 10px; }
+  .modelrow .check { margin-top: 0; font-size: 13px; }
+  .privacy { display: flex; gap: 10px; align-items: flex-start; max-width: 620px; margin-top: 12px; padding: 10px 14px; border-radius: 12px;
+             background: rgba(107,127,215,.08); font-size: 12.5px; color: var(--dim); text-align: left; }
+  .privacy svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; stroke: var(--accent); fill: none; stroke-width: 2; }
+  .privacy b { color: #fff; }
+  .backlink { margin-top: 10px; font-size: 13px; }
+
   .foot { position: fixed; left: 0; right: 0; bottom: 0; height: 92px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; }
   .foot .skip { color: var(--faint); font-size: 13.5px; }
 </style>
@@ -150,14 +183,14 @@
   <section class="step on" data-name="welcome">
     {{LOGO}}
     <h1>Hey <em>Juniper</em></h1>
-    <p class="lead">Claude Code, by voice, on your Mac. Let's get you set up. It takes about two minutes.</p>
+    <p class="lead">Your AI coding agent, by voice, on your Mac. Let's get you set up. It takes about two minutes.</p>
   </section>
 
   <!-- 1 microphone -->
   <section class="step" data-name="mic">
     <div class="icon"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4M8 22h8"/></svg></div>
     <h1>Let it <em>hear you</em></h1>
-    <p class="lead">Juniper listens for “hey Juniper” on this Mac. Your audio never leaves it: only the words of your request go to Claude.</p>
+    <p class="lead">Juniper listens for “hey Juniper” on this Mac. Your audio never leaves it: only the words of your request go to your AI.</p>
     <div class="card"><div class="row">
       <div class="grow"><div class="title">Microphone</div><div class="sub" id="micSub">Needed to hear “hey Juniper” and your requests</div></div>
       <span class="pill" id="micPill">Not allowed yet</span>
@@ -165,32 +198,27 @@
     </div></div>
   </section>
 
-  <!-- 2 Claude Code -->
-  <section class="step" data-name="claude">
-    <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div>
-    <h1>Connect <em>Claude Code</em></h1>
-    <p class="lead">Juniper runs the real Claude Code with your own account, so your settings, CLAUDE.md, MCP servers and skills all just work.</p>
-    <div class="card">
-      <div class="row" id="ccChecking"><div class="spinner"></div><div class="grow sub">Looking for Claude Code…</div></div>
-      <div id="ccMissing" class="hidden">
-        <div class="row"><div class="grow"><div class="title">Claude Code isn't installed yet</div><div class="sub">Installs with Anthropic's official installer</div></div><button class="primary" id="ccInstall">Install Claude Code</button></div>
-        <div class="log hidden" id="ccLog"></div>
-      </div>
-      <div id="ccSignedOut" class="hidden">
-        <div class="row"><div class="grow"><div class="title">Sign in to Claude</div><div class="sub" id="ccSoSub">Claude Code is installed. Sign in with your Claude account.</div></div><button class="primary" id="ccLogin">Sign in</button></div>
-        <div class="row hidden" id="ccWaiting" style="margin-top:14px"><div class="spinner"></div><div class="grow sub">Finish signing in in your browser (and Terminal, if it asks for a code). This updates by itself.</div></div>
-      </div>
-      <div id="ccReady" class="row hidden">
-        <div class="avatar" id="ccAvatar">C</div>
-        <div class="grow"><div class="title" id="ccEmail"></div><div class="sub" id="ccPlan"></div></div>
-        <span class="pill ok">Connected</span>
-      </div>
+  <!-- 2 your AI -->
+  <section class="step" data-name="ai">
+    <h1>Which <em>AI</em> do you use?</h1>
+    <p class="lead" id="aiLead">Pick the ones you have. Juniper uses them right here on your Mac, with your own subscription or API key.</p>
+    <div class="tiles" id="aiTiles"></div>
+    <div class="connects hidden" id="aiConnects">
+      <div class="conn" id="ccReq"><div class="row">
+        <div class="badge">›_</div>
+        <div class="grow"><div class="title">Claude Code</div><div class="sub" id="ccReqSub">Every AI here works through Claude Code, the coding agent on your Mac.</div></div>
+        <span class="pill" id="ccReqPill">Checking…</span><button class="primary hidden" id="ccInstall">Install</button>
+      </div><div class="log hidden" id="ccLog"></div></div>
+      <div id="aiCards"></div>
     </div>
+    <div class="backlink hidden" id="aiBack"><span class="link" id="aiChange">← Pick different AIs</span></div>
+    <div class="privacy"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <span><b>We never see your API keys.</b> Juniper has no servers. Keys are saved in your Mac's Keychain and only ever sent to the AI they belong to.</span></div>
   </section>
 
   <!-- 3 voice -->
   <section class="step" data-name="voice">
-    <h1>Choose Claude's <em>voice</em></h1>
+    <h1>Choose its <em>voice</em></h1>
     <p class="lead">Replies are read out loud. You can switch any time from the menu bar.</p>
     <div class="choices">
       <div class="choice" id="chEleven">
@@ -223,7 +251,7 @@
   <section class="step" data-name="projects">
     <div class="icon"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
     <h1>Where do your <em>projects</em> live?</h1>
-    <p class="lead">Say “new session for my-app” and Juniper opens Claude Code in that project's folder. Pick the folders your projects are in.</p>
+    <p class="lead">Say “new session for my-app” and Juniper starts a session in that project's folder. Pick the folders your projects are in.</p>
     <div class="folders" id="folders"></div>
     <div style="margin-top:16px"><button id="addFolder">Add folder…</button></div>
   </section>
@@ -254,9 +282,15 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const send = (cmd, data = {}) => window.webkit?.messageHandlers?.hc?.postMessage({ cmd, ...data });
-const steps = [...document.querySelectorAll('.step')];
-const S = { step: 0, mic: 'ask', claude: null, voice: null, enrolled: false, skippedVoice: false, folders: new Map(), loginItem: false, macos: '', appleStt: true };
+// Anything from outside (model names from a provider, error text) goes in as text, never as HTML.
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// "Add or change AIs" from the menu bar shows only that step.
+const ONLY = '{{ONLY}}';
+if (ONLY) document.querySelectorAll('.step').forEach((el) => { el.classList.remove('on'); if (el.dataset.name !== ONLY) el.classList.add('hidden'); });
+const steps = [...document.querySelectorAll('.step')].filter((el) => !ONLY || el.dataset.name === ONLY);
+const S = { step: 0, mic: 'ask', claude: null, voice: null, ai: 'pick', enrolled: false, skippedVoice: false, folders: new Map(), loginItem: false, macos: '', appleStt: true };
 let pollClaude = null;
+const AI = { providers: [], picked: new Set(), connected: {}, def: null, claudeWay: 'subscription' };
 
 // step dots
 $('dots').innerHTML = steps.map(() => '<div class="dot"></div>').join('');
@@ -265,7 +299,7 @@ const dots = [...document.querySelectorAll('.dot')];
 function canGo() {
   const name = steps[S.step].dataset.name;
   if (name === 'mic') return S.mic === 'granted';
-  if (name === 'claude') return !!(S.claude && S.claude.loggedIn);
+  if (name === 'ai') return S.ai === 'pick' ? AI.picked.size > 0 : !!(S.claude && S.claude.installed) && Object.keys(AI.connected).length > 0;
   if (name === 'voice') return !!S.voice;
   if (name === 'enroll') return S.enrolled || S.skippedVoice;
   return true;
@@ -274,8 +308,9 @@ function render() {
   steps.forEach((s, i) => { s.classList.toggle('on', i === S.step); s.classList.toggle('left', i < S.step); });
   dots.forEach((d, i) => { d.classList.toggle('on', i === S.step); d.classList.toggle('done', i < S.step); });
   const name = steps[S.step].dataset.name;
-  $('back').style.visibility = S.step === 0 || name === 'done' ? 'hidden' : 'visible';
-  $('next').textContent = { welcome: 'Get started', done: 'Start Juniper', enroll: S.enrolled || S.skippedVoice ? 'Continue' : (enrolling ? 'Listening…' : 'Start recording') }[name] || 'Continue';
+  $('back').style.visibility = (S.step === 0 && !(name === 'ai' && S.ai === 'connect')) || name === 'done' ? 'hidden' : 'visible';
+  $('next').textContent = { welcome: 'Get started', done: 'Start Juniper', enroll: S.enrolled || S.skippedVoice ? 'Continue' : (enrolling ? 'Listening…' : 'Start recording'),
+    ai: S.ai === 'pick' ? 'Connect them' : ONLY ? 'Done' : 'Continue' }[name] || 'Continue';
   $('next').disabled = name === 'enroll' ? enrolling && !S.enrolled : !canGo();
   const skip = { enroll: S.enrolled ? '' : 'Skip: anyone can wake it', projects: '' }[name] || '';
   $('skip').textContent = skip; $('skip').classList.toggle('hidden', !skip);
@@ -284,19 +319,21 @@ function go(i) {
   S.step = Math.max(0, Math.min(steps.length - 1, i));
   const name = steps[S.step].dataset.name;
   if (name === 'mic') send('mic_status');
-  if (name === 'claude') { send('claude_status'); }
+  if (name === 'ai' && !AI.providers.length) send('ai_state');
   if (name === 'voice' && !S.elevenTried) { S.elevenTried = true; send('eleven_key', { key: '' }); }
   if (name === 'projects' && !S.foldersLoaded) { S.foldersLoaded = true; send('projects_suggest'); }
   render();
 }
 $('next').onclick = () => {
   const name = steps[S.step].dataset.name;
+  if (name === 'ai' && S.ai === 'pick') { aiPhase('connect'); return; }
+  if (name === 'ai' && ONLY) { send('finish'); $('next').disabled = true; return; }
   if (name === 'enroll' && !S.enrolled && !S.skippedVoice) { startEnroll(); return; }
   if (name === 'projects') send('projects_set', { paths: [...S.folders].filter(([, on]) => on).map(([p]) => p) });
   if (name === 'done') { send('login_item', { on: S.loginItem }); send('finish'); $('next').disabled = true; $('next').textContent = 'Starting…'; return; }
   go(S.step + 1);
 };
-$('back').onclick = () => go(S.step - 1);
+$('back').onclick = () => { if (steps[S.step].dataset.name === 'ai' && S.ai === 'connect') aiPhase('pick'); else go(S.step - 1); };
 $('skip').onclick = () => {
   if (steps[S.step].dataset.name === 'enroll') { S.skippedVoice = true; send('enroll_skip'); enrolling = false; go(S.step + 1); }
 };
@@ -315,26 +352,127 @@ function showMic(status) {
   render();
 }
 
-// Claude Code
+// your AI
+function aiPhase(phase) {
+  S.ai = phase;
+  $('aiTiles').classList.toggle('hidden', phase !== 'pick');
+  $('aiConnects').classList.toggle('hidden', phase !== 'connect');
+  $('aiBack').classList.toggle('hidden', phase !== 'connect');
+  $('aiLead').textContent = phase === 'pick'
+    ? 'Pick the ones you have. Juniper uses them right here on your Mac, with your own subscription or API key.'
+    : 'Connect each one. Add more any time from the menu bar.';
+  if (phase === 'connect') { drawCards(); send('claude_status'); }
+  render();
+}
+$('aiChange').onclick = () => aiPhase('pick');
+function drawTiles() {
+  $('aiTiles').innerHTML = AI.providers.map((p) => `<div class="tile${AI.picked.has(p.id) ? ' sel' : ''}" data-p="${p.id}">
+    <div class="badge">${esc(p.name[0])}</div><div><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.blurb)}</div></div></div>`).join('');
+  $('aiTiles').querySelectorAll('.tile').forEach((el) => el.onclick = () => {
+    const id = el.dataset.p; AI.picked.has(id) ? AI.picked.delete(id) : AI.picked.add(id); drawTiles(); render();
+  });
+}
+const prov = (id) => AI.providers.find((p) => p.id === id);
+function wayOf(id) { return id === 'claude' ? AI.claudeWay : prov(id).ways[0]; }
+function drawCards() {
+  const ids = AI.providers.map((p) => p.id).filter((id) => AI.picked.has(id) || AI.connected[id]);
+  $('aiCards').innerHTML = ids.map((id) => {
+    const p = prov(id);
+    const ways = id === 'claude' ? `<div class="ways">
+        <div class="way${AI.claudeWay === 'subscription' ? ' sel' : ''}" data-w="subscription">My Claude subscription<span>Pro or Max: sign in with your Claude account</span></div>
+        <div class="way${AI.claudeWay === 'key' ? ' sel' : ''}" data-w="key">An Anthropic API key<span>Pay as you go, billed by Anthropic</span></div></div>` : '';
+    return `<div class="conn" id="conn-${id}" data-p="${id}"><div class="row">
+        <div class="badge">${esc(p.name[0])}</div>
+        <div class="grow"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.desc)}</div></div>
+        <span class="pill" id="pill-${id}">Not connected</span></div>${ways}
+      <div class="body" id="body-${id}"></div>
+      <div class="msg" id="msg-${id}">${esc(p.note || '')}</div>
+      <div class="row modelrow hidden" id="mrow-${id}"><span class="sub">Model</span><select id="sel-${id}"></select><div class="grow"></div>
+        <div class="check" id="def-${id}"><div class="box"></div>My default</div></div></div>`;
+  }).join('');
+  ids.forEach((id) => { drawBody(id); showConn(id); });
+  document.querySelectorAll('.way').forEach((el) => el.onclick = () => {
+    AI.claudeWay = el.dataset.w; document.querySelectorAll('.way').forEach((w) => w.classList.toggle('sel', w === el)); drawBody('claude');
+  });
+}
+function drawBody(id) {
+  const p = prov(id), way = wayOf(id), body = $('body-' + id);
+  const getKey = p.key_url ? ` No key yet? <a data-url="${esc(p.key_url)}">Get one from ${esc(p.maker)}</a>` : '';
+  if (way === 'subscription') {
+    body.innerHTML = `<div class="row"><div class="grow sub" id="sub-${id}">Sign in with the Claude account you already pay for.</div><button class="primary" id="go-${id}">Sign in</button></div>`;
+    $('go-' + id).onclick = () => {
+      send('claude_login'); $('sub-' + id).textContent = 'Finish signing in in your browser (and Terminal, if it asks for a code). This updates by itself.';
+      $('go-' + id).textContent = 'Open again'; if (!pollClaude) pollClaude = setInterval(() => send('claude_status'), 2500);
+    };
+  } else if (way === 'local') {
+    body.innerHTML = `<div class="row"><div class="grow sub">Install Ollama and download a model first (for example <b>ollama pull qwen3-coder</b>). <a data-url="https://ollama.com/download">Get Ollama</a></div><button class="primary" id="go-${id}">Check</button></div>`;
+    $('go-' + id).onclick = () => connect(id, {});
+  } else if (id === 'custom') {
+    body.innerHTML = `<div class="grid2"><input type="text" id="name-${id}" placeholder="Name (e.g. Work gateway)" spellcheck="false">
+      <input type="text" id="url-${id}" placeholder="Address, e.g. https://llm.example.com" spellcheck="false">
+      <input type="password" id="key-${id}" placeholder="API key (if it needs one)" autocomplete="off" spellcheck="false">
+      <input type="text" id="model-${id}" placeholder="Model name" spellcheck="false"></div>
+      <div class="row" style="margin-top:8px"><div class="grow"></div><button class="primary" id="go-${id}">Connect</button></div>`;
+    $('go-' + id).onclick = () => connect(id, { key: $('key-' + id).value.trim(), base_url: $('url-' + id).value.trim(), model: $('model-' + id).value.trim(), name: $('name-' + id).value.trim() });
+  } else {
+    body.innerHTML = `<div class="row"><input type="password" id="key-${id}" placeholder="Paste your ${esc(p.name)} API key (${esc(p.key_hint || 'key')})" autocomplete="off" spellcheck="false"><button class="primary" id="go-${id}">Connect</button></div>
+      <div class="msg">Kept in your Keychain, sent only to ${esc(p.maker)}.${getKey}</div>`;
+    $('go-' + id).onclick = () => { const k = $('key-' + id).value.trim(); if (k) connect(id, { key: k }); };
+    $('key-' + id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('go-' + id).click(); });
+  }
+  body.querySelectorAll('a[data-url]').forEach((a) => a.onclick = () => send('open_url', { url: a.dataset.url }));
+}
+function connect(id, data) {
+  const go = $('go-' + id); go.disabled = true; go.textContent = 'Checking…';
+  $('msg-' + id).className = 'msg'; $('msg-' + id).textContent = '';
+  send('ai_connect', { provider: id, way: wayOf(id), ...data });
+}
+function showConn(id) {
+  const c = AI.connected[id], card = $('conn-' + id);
+  if (!card) return;
+  card.classList.toggle('ok', !!c);
+  $('pill-' + id).textContent = c ? 'Connected' : 'Not connected'; $('pill-' + id).className = 'pill' + (c ? ' ok' : '');
+  const row = $('mrow-' + id); row.classList.toggle('hidden', !c);
+  if (!c) return;
+  const sel = $('sel-' + id), models = c.models && c.models.length ? c.models : (c.model ? [c.model] : []);
+  sel.classList.toggle('hidden', id === 'claude');
+  row.querySelector('.sub').classList.toggle('hidden', id === 'claude');
+  sel.innerHTML = models.map((m) => `<option value="${esc(m)}"${m === c.model ? ' selected' : ''}>${esc(m)}</option>`).join('');
+  sel.onchange = () => { c.model = sel.value; send('ai_model', { provider: id, model: sel.value }); };
+  const def = $('def-' + id); def.classList.toggle('sel', AI.def === id);
+  def.onclick = () => { AI.def = id; send('ai_default', { provider: id }); Object.keys(AI.connected).forEach(showConn); };
+}
+function showAiResult(r) {
+  const go = $('go-' + r.provider);
+  if (go) { go.disabled = false; go.textContent = wayOf(r.provider) === 'local' ? 'Check again' : 'Connect'; }
+  const msg = $('msg-' + r.provider);
+  if (r.ok) {
+    AI.connected[r.provider] = { way: r.way, model: r.model, models: r.models || [] };
+    AI.def = r.default;
+    if (msg) { msg.className = 'msg ' + (r.message ? '' : 'good'); msg.textContent = r.message || (r.way === 'key' ? '✓ Connected. The key is in your Keychain.' : '✓ Connected.'); }
+    const key = $('key-' + r.provider); if (key) key.value = '';
+  } else if (msg) { msg.className = 'msg bad'; msg.textContent = r.message || "That didn't work."; }
+  Object.keys(AI.connected).forEach(showConn);
+  render();
+}
 function showClaude(c) {
   S.claude = c;
-  ['ccChecking', 'ccMissing', 'ccSignedOut', 'ccReady'].forEach((id) => $(id).classList.add('hidden'));
-  if (!c.installed) $('ccMissing').classList.remove('hidden');
-  else if (!c.loggedIn) { $('ccSignedOut').classList.remove('hidden'); $('ccSoSub').textContent = `Claude Code ${c.version} is installed. Sign in with your Claude account.`; }
-  else {
-    $('ccReady').classList.remove('hidden');
-    $('ccEmail').textContent = c.email || 'Signed in';
-    $('ccAvatar').textContent = (c.email || 'C')[0].toUpperCase();
-    $('ccPlan').textContent = [c.org, c.plan && c.plan[0].toUpperCase() + c.plan.slice(1) + ' plan', 'Claude Code ' + c.version].filter(Boolean).join(' · ');
-    if (pollClaude) { clearInterval(pollClaude); pollClaude = null; }
+  const pill = $('ccReqPill');
+  pill.textContent = c.installed ? 'Installed' + (c.version ? ' · ' + c.version : '') : 'Not installed';
+  pill.className = 'pill' + (c.installed ? ' ok' : ' bad');
+  $('ccInstall').classList.toggle('hidden', !!c.installed);
+  if (c.installed && AI.picked.has('claude') && AI.claudeWay === 'subscription') {
+    const sub = $('sub-claude');
+    if (c.loggedIn) {
+      if (pollClaude) { clearInterval(pollClaude); pollClaude = null; }
+      if (sub) sub.textContent = [c.email, c.plan && c.plan[0].toUpperCase() + c.plan.slice(1) + ' plan'].filter(Boolean).join(' · ') || 'Signed in';
+      if ($('go-claude')) $('go-claude').classList.add('hidden');
+      if (!AI.connected.claude || AI.connected.claude.way !== 'subscription') send('ai_connect', { provider: 'claude', way: 'subscription' });
+    }
   }
   render();
 }
 $('ccInstall').onclick = () => { $('ccInstall').disabled = true; $('ccInstall').textContent = 'Installing…'; $('ccLog').classList.remove('hidden'); send('claude_install'); };
-$('ccLogin').onclick = () => {
-  send('claude_login'); $('ccWaiting').classList.remove('hidden'); $('ccLogin').textContent = 'Open again';
-  if (!pollClaude) pollClaude = setInterval(() => send('claude_status'), 2500);
-};
 
 // voice
 const getKey = () => send('open_url', { url: 'https://elevenlabs.io/app/settings/api-keys' });
@@ -366,7 +504,7 @@ function showEleven(r) {
   const quota = r.limit ? ` · ${Math.round((r.limit - r.used) / 1000)}k characters left this month` : '';
   $('elMsg').innerHTML = `<span style="color:var(--green)">✓ Connected</span>${r.tier ? ' · ' + r.tier : ''}${quota}`;
   const box = $('voices'); box.classList.remove('hidden');
-  box.innerHTML = r.voices.map((v) => `<div class="voice" data-id="${v.id}" data-preview="${v.preview || ''}"><div class="play"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></div><div><div class="n">${v.name}</div><div class="d">${v.desc}</div></div></div>`).join('');
+  box.innerHTML = r.voices.map((v) => `<div class="voice" data-id="${esc(v.id)}" data-preview="${esc(v.preview || '')}"><div class="play"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></div><div><div class="n">${esc(v.name)}</div><div class="d">${esc(v.desc)}</div></div></div>`).join('');
   box.querySelectorAll('.voice').forEach((el) => el.onclick = () => {
     pickVoice({ id: el.dataset.id });
     if (el.dataset.preview) send('preview', { url: el.dataset.preview });
@@ -409,6 +547,10 @@ window.hc = {
     if (event === 'hello') { S.macos = d.macos; S.appleStt = d.apple_stt; if (!d.apple_stt) $('sttNote').textContent = 'Your first request downloads the speech-recognition model (about 150 MB).'; }
     else if (event === 'mic') showMic(d.status);
     else if (event === 'claude') showClaude(d);
+    else if (event === 'ai_state') { AI.providers = d.providers; AI.connected = d.connected; AI.def = d.default;
+      Object.keys(d.connected).forEach((id) => AI.picked.add(id)); if (d.connected.claude) AI.claudeWay = d.connected.claude.way === 'key' ? 'key' : 'subscription';
+      drawTiles(); if (ONLY && Object.keys(d.connected).length) aiPhase('connect'); render(); }
+    else if (event === 'ai_result') showAiResult(d);
     else if (event === 'install_line') { const l = $('ccLog'); const div = document.createElement('div'); div.textContent = d; l.appendChild(div); while (l.children.length > 6) l.firstChild.remove(); }
     else if (event === 'install_done' && !d.ok) { $('ccInstall').disabled = false; $('ccInstall').textContent = 'Try again'; }
     else if (event === 'eleven') showEleven(d);
