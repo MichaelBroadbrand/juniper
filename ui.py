@@ -690,6 +690,25 @@ class _Wheel(AppKit.NSView):
             colour.set()
             arc.stroke()
 
+    def mouseEntered_(self, event):
+        _hover_apply(self.lift, True)
+
+    def mouseExited_(self, event):
+        _hover_apply(self.lift, False)
+
+
+class _CtxZone(AppKit.NSView):
+    """Click to compact: one over the wheel and its "% left", and the hover box itself. The box stays
+    open while the pointer is on either, so you can move onto it and click."""
+
+    def initWithFrame_(self, frame):
+        self = objc.super(_CtxZone, self).initWithFrame_(frame)
+        if self is None:
+            return None
+        self.addTrackingArea_(AppKit.NSTrackingArea.alloc().initWithRect_options_owner_userInfo_(
+            self.bounds(), _TRACK, self, None))
+        return self
+
     def acceptsFirstMouse_(self, event):
         return True
 
@@ -698,14 +717,14 @@ class _Wheel(AppKit.NSView):
             _ui.compact_from_wheel()
 
     def mouseEntered_(self, event):
+        AppKit.NSCursor.pointingHandCursor().set()
         if _ui:
-            _ui.overlay.hover_context(True)
-        _hover_apply(self.lift, True)
+            _ui.overlay.ctx_hover(self, True)
 
     def mouseExited_(self, event):
+        AppKit.NSCursor.arrowCursor().set()
         if _ui:
-            _ui.overlay.hover_context(False)
-        _hover_apply(self.lift, False)
+            _ui.overlay.ctx_hover(self, False)
 
 
 class _ResizeHandle(AppKit.NSView):
@@ -881,7 +900,10 @@ class Overlay:
         self.ctx_pct.setFrame_(AppKit.NSMakeRect(inner - 100, 3, 76, 16))
         for v in (self.mode_chip, self.model_chip, self.ctx_pct, self.wheel):
             self.toolbar.addSubview_(v)
-        self.ctx_tip = AppKit.NSView.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, 10, 10))
+        self.ctx_zone = _CtxZone.alloc().initWithFrame_(AppKit.NSMakeRect(inner - 100, 0, 100, 22))
+        self.toolbar.addSubview_(self.ctx_zone)
+        self.ctx_over = set()           # which of the zone and the box the pointer is on
+        self.ctx_tip = _CtxZone.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, 10, 10))
         self.ctx_tip.setWantsLayer_(True)
         self.ctx_tip.layer().setBackgroundColor_(AppKit.NSColor.colorWithWhite_alpha_(0.1, 0.96).CGColor())
         self.ctx_tip.layer().setCornerRadius_(9)
@@ -1025,6 +1047,23 @@ class Overlay:
         chip.button.setFrame_(AppKit.NSMakeRect(0, 0, w, 20))
         return x + w + 6
 
+    def ctx_hover(self, view, on):
+        """The pointer went onto or off the wheel area or its box. The box closes a moment after it
+        has left both, so crossing the gap between them doesn't close it."""
+        (self.ctx_over.add if on else self.ctx_over.discard)(view)
+        if on:
+            self.hover_context(True)
+        else:
+            Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+                0.3, False, lambda t: None if self.ctx_over else self.hover_context(False))
+
+    def _ctx_zone_frame(self):
+        """Covers the wheel and the "% left" text, however wide that is."""
+        w = self.wheel.frame()
+        text = self.ctx_pct.attributedStringValue().size().width if self.ctx_pct.stringValue() else 0
+        left = w.origin.x - (math.ceil(text) + 6 if text else 2)
+        self.ctx_zone.setFrame_(AppKit.NSMakeRect(left, 0, w.origin.x + w.size.width + 2 - left, 22))
+
     def hover_context(self, on):
         """The context wheel's hover box: tokens used and left, and that clicking compacts. Centred both ways."""
         self.ctx_tip.setHidden_(not on or not self.ctx_text)
@@ -1047,6 +1086,7 @@ class Overlay:
         frac = used / window if used and window else 0.0
         self.wheel.show(frac)
         self.ctx_pct.setStringValue_(f"{round(100 * (1 - frac))}% left" if used and window else "")
+        self._ctx_zone_frame()
         busy = bool(_ui and _ui.app.runner.busy())
         def tokens(n):
             return f"{n / 1e6:.1f}".rstrip("0").rstrip(".") + "M" if n >= 1e6 else f"{n / 1000:.0f}k"
@@ -1715,6 +1755,7 @@ class Overlay:
         self.attach_clear.setFrame_(AppKit.NSMakeRect(inner - 18, 0, 16, 16))
         self.wheel.setFrame_(AppKit.NSMakeRect(inner - 20, 2, 18, 18))
         self.ctx_pct.setFrame_(AppKit.NSMakeRect(inner - 100, 3, 76, 16))
+        self._ctx_zone_frame()
         self.content_key = self.card_key = self.slash_key = None      # re-flow the conversation and cards
 
     def _apply(self, g):
