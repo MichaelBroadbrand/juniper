@@ -2580,6 +2580,30 @@ _SYMBOLS = {}
 SYMBOL_PT, SYMBOL_WEIGHT, SYMBOL_BOX = 16, AppKit.NSFontWeightSemibold, (26.0, 22.0)
 
 
+def status_item_shown(win):
+    """macOS 26 says a menu bar item's window is visible even when it has moved it off the screen,
+    or left of the notch under the frontmost app's menus; whether any of it can be seen (occlusion)
+    is what tells. Its position is checked too."""
+    if win is None or not win.isVisible() or not (win.occlusionState() & AppKit.NSWindowOcclusionStateVisible):
+        return False
+    return icon_visible(win.frame(), [(s.frame(), s.auxiliaryTopLeftArea(), s.auxiliaryTopRightArea(),
+                                       s.safeAreaInsets().top) for s in AppKit.NSScreen.screens()])
+
+
+def icon_visible(frame, screens):
+    """Can you see a menu bar item at this frame? screens: (frame, the areas left and right of a
+    notch, the notch's height) for each display. It must be on a display, and on one with a notch,
+    clear of it (macOS parks items it has no room for behind the notch)."""
+    cx, cy = frame.origin.x + frame.size.width / 2, frame.origin.y + frame.size.height / 2
+    for sf, left, right, notch in screens:
+        if not (sf.origin.x <= cx <= sf.origin.x + sf.size.width and sf.origin.y <= cy <= sf.origin.y + sf.size.height):
+            continue
+        if notch <= 0:
+            return True
+        return any(a.size.width > 0 and a.origin.x <= cx <= a.origin.x + a.size.width for a in (left, right))
+    return False
+
+
 def _symbol(name):
     """A menu bar icon centred on a fixed 26×22 canvas: an SF Symbol, or "berries:3" for a frame of
     the logo's thinking pulse. The symbols' own sizes differ (13 to 24 pt wide, 14 to 21 tall), which
@@ -3047,6 +3071,63 @@ class MenuBar(rumps.App):
         self.hotkeys.add(self.cfg["logo_key"], self.toggle_logo)
         self.hotkeys.add(self.cfg["type_key"], self.open_typing)
         self.started = True
+        # macOS can hide the icon without a word: check once things have settled.
+        Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(6, False, lambda t: self.check_icon_shown())
+
+    def icon_shown(self):
+        """Is macOS showing the menu bar icon? It hides one when the bar is full (sooner beside a
+        MacBook's notch), or when it isn't allowed under System Settings › Menu Bar (macOS 26)."""
+        button = self._nsapp.nsstatusitem.button()
+        return status_item_shown(button.window() if button else None)
+
+    def check_icon_shown(self, again=True):
+        """If the icon isn't showing, say why and how to fix it, and make sure the corner logo is
+        there in the meantime (it opens everything the icon does)."""
+        from juniper import BUNDLED, get_state, macos_major
+        if not AppKit.NSMenu.menuBarVisible():          # hidden menu bar, full-screen app: look later
+            Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(30, False, lambda t: self.check_icon_shown(again))
+            return
+        shown = self.icon_shown()
+        win = self._nsapp.nsstatusitem.button().window()
+        if win is not None:      # what macOS says about it, for anyone working out why it's missing
+            f = win.frame()
+            log("menubar", f"icon {'shown' if shown else 'hidden'}: x={f.origin.x:.0f} width={f.size.width:.0f} "
+                           f"visible={bool(win.isVisible())} "
+                           f"uncovered={bool(win.occlusionState() & AppKit.NSWindowOcclusionStateVisible)}", "dim")
+        else:
+            log("menubar", "icon hidden: macOS gave it no window", "dim")
+        if shown or get_state().get("menubar_hint_off"):
+            return
+        if again:                                        # a moment's reshuffle (an icon appearing) isn't worth a dialog
+            Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(4, False, lambda t: self.check_icon_shown(False))
+            return
+        log("menubar", "macOS isn't showing the menu bar icon", "yellow")
+        if not self.app.show_logo:
+            self.app.set_show_logo(True)
+        owner = "Juniper" if BUNDLED else "Python"      # run from source, the icon belongs to Python
+        allow = (f"• It isn't allowed: in System Settings › Menu Bar, under Allow in the Menu Bar, turn on {owner}"
+                 + ("" if BUNDLED else " (that's Juniper, running from its source folder)") + ".\n") if macos_major() >= 26 else ""
+        alert = AppKit.NSAlert.alloc().init()
+        icon = AppKit.NSImage.imageWithSize_flipped_drawingHandler_(
+            (64, 64), False, lambda rect: draw_berries(32, 32, 52, ACCENT) or True)
+        alert.setIcon_(icon)
+        alert.setMessageText_("Juniper's menu bar icon is hidden")
+        alert.setInformativeText_(
+            "macOS isn't showing it, usually for one of these reasons:\n\n" + allow +
+            "• Your menu bar is full: hold ⌘ and drag some other icons out of it, or quit an app you don't need there.\n\n"
+            "Until then, click the berries in the corner of your screen to open Juniper, or press "
+            f"{key_hint(self.cfg['type_key'])} to type to it.")
+        if macos_major() >= 26:
+            alert.addButtonWithTitle_("Open Menu Bar Settings")
+        alert.addButtonWithTitle_("OK")
+        alert.setShowsSuppressionButton_(True)
+        alert.suppressionButton().setTitle_("Don't remind me")
+        AppKit.NSApp.activateIgnoringOtherApps_(True)
+        choice = alert.runModal()
+        if alert.suppressionButton().state():
+            set_state(menubar_hint_off=True)
+        if macos_major() >= 26 and choice == AppKit.NSAlertFirstButtonReturn:
+            subprocess.Popen(["open", "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension"])
 
     def status_clicked(self):
         event = AppKit.NSApp.currentEvent()
