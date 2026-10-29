@@ -555,6 +555,19 @@ class _Actions(AppKit.NSObject):
         if _ui:
             _ui.toggle_sidebar()
 
+    def deleteSession_(self, sender):
+        if _ui:
+            _ui.sidebar_delete(sender.representedObject() if isinstance(sender, AppKit.NSMenuItem)
+                               else sender.superview().session_name)
+
+    def clearSession_(self, sender):
+        if _ui:
+            _ui.sidebar_clear(sender.representedObject())
+
+    def openSession_(self, sender):
+        if _ui:
+            _ui.sidebar_pick(sender.representedObject())
+
     def newSession_(self, sender):
         if _ui:
             _ui.pick_folder(None)
@@ -595,7 +608,8 @@ class _ChipView(AppKit.NSView):
 
 
 class _Row(AppKit.NSView):
-    """A session in the sidebar: click to switch to it."""
+    """A session in the sidebar: click to switch to it, hover for its delete button, right-click for
+    clear and delete."""
 
     def isFlipped(self):
         return True
@@ -606,6 +620,17 @@ class _Row(AppKit.NSView):
     def mouseDown_(self, event):
         if _ui and getattr(self, "session_name", None):
             _ui.sidebar_pick(self.session_name)
+
+    def mouseEntered_(self, event):
+        if getattr(self, "del_btn", None):
+            self.del_btn.setHidden_(False)
+
+    def mouseExited_(self, event):
+        if getattr(self, "del_btn", None):
+            self.del_btn.setHidden_(True)
+
+    def menuForEvent_(self, event):
+        return _ui.row_menu(self.session_name) if _ui and getattr(self, "session_name", None) else None
 
 
 class _Wheel(AppKit.NSView):
@@ -1197,6 +1222,17 @@ class Overlay:
             f.setFrame_(AppKit.NSMakeRect(10, 25, SIDEBAR - 36, 15))
             row.addSubview_(n)
             row.addSubview_(f)
+            if name != "general":                       # general always stays; it can only be cleared
+                x = _symbol_button("xmark.circle.fill", self.actions, "deleteSession:", 13,
+                                   AppKit.NSColor.tertiaryLabelColor())
+                x.setFrame_(AppKit.NSMakeRect(SIDEBAR - 42, 13, 20, 20))
+                x.setToolTip_("Delete session")
+                x.setHidden_(True)
+                row.addSubview_(x)
+                row.del_btn = x
+                n.setFrame_(AppKit.NSMakeRect(10, 6, SIDEBAR - 58, 18))
+                row.addTrackingArea_(AppKit.NSTrackingArea.alloc().initWithRect_options_owner_userInfo_(
+                    row.bounds(), _TRACK, row, None))
             hover(row, "glow", self.hovers["side"])
             self.side_doc.addSubview_(row)
             y += 50
@@ -2718,6 +2754,29 @@ class MenuBar(rumps.App):
     def sidebar_pick(self, name):
         threading.Thread(target=self.app.switch_session, args=(name,), daemon=True).start()
 
+    def sidebar_delete(self, name):
+        self.overlay.drafts.pop(name, None)
+        threading.Thread(target=self.app.delete_session, args=(name,), daemon=True).start()
+
+    def sidebar_clear(self, name):
+        threading.Thread(target=self.app.clear_session, args=(name,), daemon=True).start()
+
+    def row_menu(self, name):
+        """Right-click on a session in the sidebar."""
+        menu = AppKit.NSMenu.alloc().initWithTitle_(name)
+        items = [("Open", "openSession:"), ("Clear conversation", "clearSession:")]
+        if name != "general":
+            items += [None, ("Delete session", "deleteSession:")]
+        for entry in items:
+            if entry is None:
+                menu.addItem_(AppKit.NSMenuItem.separatorItem())
+                continue
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(entry[0], entry[1], "")
+            item.setTarget_(self.overlay.actions)
+            item.setRepresentedObject_(name)
+            menu.addItem_(item)
+        return menu
+
     def chip_menu(self, chip, kind):
         """The mode and model chips: a little menu, ticked at the current choice."""
         s = self.app.sessions.get()
@@ -3123,6 +3182,8 @@ class MenuBar(rumps.App):
             rows = []
             if self.overlay.sidebar_open:
                 for n in app.sessions.names():
+                    if n not in app.sessions.items:          # deleted while we were drawing
+                        continue
                     r = app.runners.get(n)
                     st = ("needs you" if app.approvals.waiting(n) else "working" if r and r.busy()
                           else "new reply" if app.sessions.get(n).get("unread") else "")

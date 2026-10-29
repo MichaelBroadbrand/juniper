@@ -629,6 +629,14 @@ class Sessions:
             s["session_id"], s["turns"], s["unread"] = None, [], False
         self.save()
 
+    def delete(self, name):
+        """Forget a session. Its Claude Code conversation stays on disk, so `claude --resume` still finds it."""
+        with self.lock:
+            self.items.pop(name, None)
+            if self.current not in self.items:
+                self.current = "general"
+        self.save()
+
     def new_turn(self, name, you):
         with self.lock:
             s = self.items[name]
@@ -667,7 +675,7 @@ class Sessions:
             self.items[name]["unread"] = unread
 
     def unread(self):
-        return [n for n in self.names() if self.items[n].get("unread")]
+        return [n for n in self.names() if self.items.get(n, {}).get("unread")]
 
     def save(self):
         with self.lock:
@@ -700,7 +708,7 @@ def claude_env():
 
 # Requests with any of these words might be about sessions; a quick Claude call decides whether they are.
 SESSION_WORDS = re.compile(r"\b(sessions?|switch|swap|go back to|compact|clear|start (?:over|fresh)|new (?:conversation|chat)"
-                           r"|pick up|fresh conversation)\b", re.I)
+                           r"|pick up|fresh conversation|delete|remove|get rid of)\b", re.I)
 
 ROUTER_PROMPT = """You route voice commands for a voice assistant that keeps several Claude Code sessions, \
 each tied to a project folder. Speech recognition often mangles names (e.g. "store front" or "stored front" for storefront), \
@@ -720,6 +728,7 @@ action is one of:
 - "continue": pick up the user's most recent Claude Code session in a folder, e.g. one from the terminal \
 ("session" = a short name, "folder" = the folder).
 - "clear": wipe a session's conversation so it starts fresh ("session" = its exact name, or the current one).
+- "delete": remove a session from the list for good ("session" = its exact name, or the current one).
 - "compact": compact (summarise) the current conversation to free up context.
 - "list": the user wants to know which sessions exist.
 - "current": the user wants to know which session they're in.
@@ -2062,6 +2071,13 @@ class App:
         if action == "clear":
             self.clear_session(name or self.sessions.current, you=text)
             return then
+        if action == "delete":
+            name = name or self.sessions.current
+            if name == "general":
+                self.answer(text, "The general session can't be deleted, but I can clear it.")
+            else:
+                self.delete_session(name, you=text)
+            return then
         if action == "switch" and name:
             read_out = self.enter_session(name)
             if not then and not read_out:
@@ -2219,6 +2235,27 @@ class App:
         if you is not None or name == self.sessions.current:
             extra = f" That stopped {stopped} thing{'s' * (stopped != 1)} it was running in the background." if stopped else ""
             self.answer(you or "Clear this session", f"Okay, the {name} session is cleared.{extra}")
+
+    def delete_session(self, name, you=None):
+        """Stop whatever the session is doing and take it off the list. General always stays."""
+        if name == "general" or name not in self.sessions.items:
+            return
+        self.approvals.cancel_session(name)
+        r = self.runners.get(name)
+        if r:
+            if r.busy():
+                r.cancel()
+                if r.thread:
+                    r.thread.join(timeout=10)
+            r.stop()
+        was_current = name == self.sessions.current
+        self.sessions.delete(name)
+        self.runners.pop(name, None)
+        log("session", f"deleted {name}", "green")
+        if was_current:
+            self.enter_session("general")
+        if you is not None:
+            self.answer(you, f"Okay, the {name} session is deleted.")
 
     # -- controls (called from the menu bar and the global keys) ------------------------------
 
