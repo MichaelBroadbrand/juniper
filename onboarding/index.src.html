@@ -572,7 +572,7 @@ window.hc = {
     else if (event === 'enroll_line') setLine(d.i, d.text);
     else if (event === 'level') level(d);
     else if (event === 'enroll_retry') { $('quote').classList.add('shake'); setTimeout(() => $('quote').classList.remove('shake'), 400); $('enNote').textContent = "Didn't catch that. Once more, a little louder."; }
-    else if (event === 'enroll_got') { $('progress').children[d.i].classList.add('got'); $('enNote').textContent = d.i + 1 < N_LINES ? 'Got it.' : ''; }
+    else if (event === 'enroll_got') { { const seg = $('progress').children[d.i]; seg.classList.remove('now'); seg.classList.add('got'); } $('enNote').textContent = d.i + 1 < N_LINES ? 'Got it.' : ''; }
     else if (event === 'enroll_calibrating') { $('quote').textContent = 'Learning your voice…'; level(0); $('enNote').innerHTML = '<span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:8px"></span>Comparing it with other voices'; }
     else if (event === 'enroll_done') {
       S.enrolled = true; enrolling = false; $('orb').classList.add('idle');
