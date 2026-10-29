@@ -2466,8 +2466,7 @@ class StatusPopover:
             row.addSubview_(title)
             folder = os.path.basename(s["folder"]) or "~"
             detail = _label(11, AppKit.NSFontWeightRegular, AppKit.NSColor.secondaryLabelColor())
-            detail.setStringValue_(f"{folder}  ·  {app.ai_label(name)}  ·  "
-                                   f"{mode_label(s.get('mode') or cfg['permission_mode'])}")
+            detail.setStringValue_(f"{folder}  ·  {app.ai_label(name)}  ·  {mode_label(app.mode_text(name))}")
             detail.setFrame_(AppKit.NSMakeRect(22, 27, W - 2 * P - 40, 15))
             row.addSubview_(detail)
             state, colour = (("needs you", AppKit.NSColor.systemYellowColor()) if waiting else
@@ -2750,9 +2749,10 @@ class MenuBar(rumps.App):
         if kind == "model":
             return self.model_menu(chip)
         s = self.app.sessions.get()
-        current = s.get(kind) or self.cfg["permission_mode"]
+        agent = self.app.agent_modes()
+        current = s.get(kind) or (self.cfg["permission_mode"] if agent is None else self.app.connection_for().get("current_mode"))
         menu = AppKit.NSMenu.alloc().initWithTitle_(kind)
-        for value, label in MODES:
+        for value, label in (MODES if agent is None else agent or [("", "This AI has one mode")]):
             item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(label, "pickMode:", "")
             item.setTarget_(self.overlay.actions)
             item.setRepresentedObject_(value)
@@ -2783,8 +2783,9 @@ class MenuBar(rumps.App):
             item.setState_(int(on))
             menu.addItem_(item)
         add("Model")
-        current = s.get("model") or (self.cfg["model"] if claude else conn.get("model"))
-        for value, label in (MODELS if claude else [(m, m) for m in (conn.get("models") or [conn.get("model")])[:30] if m]):
+        current = s.get("model") or (self.cfg["model"] if claude else conn.get("model") or conn.get("current_model"))
+        choices = MODELS if claude else conn.get("agent_models") or [(m, m) for m in conn.get("models") or [conn.get("model")] if m]
+        for value, label in list(choices)[:30]:
             add(label, "pickModel:", value, value == current)
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
         add("AI for this session (switching starts afresh)")
@@ -3197,7 +3198,7 @@ class MenuBar(rumps.App):
                     rows.append((n, os.path.basename(app.sessions.get(n)["folder"]) or "~", st, n == app.sessions.current))
             self.overlay.render(status, status_color, turns, step, phase == "busy" and not approval, app.sessions.current,
                                 note, tuple(app.attachments), app.runner.busy() or speaking,
-                                sess.get("mode") or self.cfg["permission_mode"], app.ai_label(),
+                                app.mode_text(), app.ai_label(),
                                 (sess.get("context_used") or 0, sess.get("context_window") or 0), approval,
                                 self.overlay.slash_candidates(app.slash_commands, app.skills), rows,
                                 tuple(s for _, _, s in app.runner.queued))

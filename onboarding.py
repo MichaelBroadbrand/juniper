@@ -137,15 +137,19 @@ class Setup:
     # ── your AI ──────────────────────────────────────────────────────────────────────────
     def cmd_ai_state(self, _):
         import connections
+        order = ["claude", "codex", "gemini", "qwen-code", "deepseek", "qwen", "kimi", "glm", "openrouter", "opencode",
+                 "ollama", "custom"]
         providers = [{"id": k, "name": p["name"], "maker": p["maker"], "blurb": p["blurb"], "ways": p["ways"],
+                      "agent": connections.is_agent(k), "way_names": p.get("way_names", {}),
                       "desc": connections.describe(k), "key_url": p.get("key_url", ""), "key_hint": p.get("key_hint", ""),
-                      "note": p.get("note", "")} for k, p in connections.PROVIDERS.items()]
+                      "note": p.get("note", "")} for k, p in sorted(connections.PROVIDERS.items(), key=lambda kv: order.index(kv[0]))]
         if not self.conns.saved and self.on_done:
             # Opened from the menu bar by someone who's been using Claude with their subscription
             # all along: that counts as connected, so adding another AI doesn't drop it.
             self.conns.set("claude", provider="claude", way="subscription")
-        connected = {k: {"way": v.get("way"), "model": v.get("model", ""), "models": v.get("models") or []}
-                     for k, v in self.conns.saved.items()}
+        connected = {k: {"way": v.get("way"), "model": v.get("model", ""),
+                         "models": [m for m, _ in v.get("agent_models") or []] or v.get("models") or [],
+                         "names": dict(v.get("agent_models") or [])} for k, v in self.conns.saved.items()}
         self.emit("ai_state", {"providers": providers, "connected": connected,
                                "default": self.conns.default if self.conns.saved else None})
 
@@ -159,8 +163,15 @@ class Setup:
             r = {"ok": True, "message": "", "models": [], "model": ""}
         else:
             r = connections.connect(self.conns, provider, way, key=msg.get("key", ""), base_url=msg.get("base_url", ""),
-                                    model=msg.get("model", ""), name=msg.get("name", ""))
+                                    model=msg.get("model", ""), name=msg.get("name", ""),
+                                    progress=lambda line: self.emit("ai_progress", {"provider": provider, "line": line}))
         self.emit("ai_result", {"provider": provider, "way": way, **r, "default": self.conns.default})
+
+    def cmd_ai_login(self, msg):
+        """OpenCode signs in to providers with its own command, in Terminal."""
+        import agents
+        if msg.get("provider") in agents.AGENTS:
+            agents.open_login(msg["provider"])
 
     def cmd_ai_model(self, msg):
         if msg.get("provider") in self.conns.saved:

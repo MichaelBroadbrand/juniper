@@ -290,7 +290,7 @@ if (ONLY) document.querySelectorAll('.step').forEach((el) => { el.classList.remo
 const steps = [...document.querySelectorAll('.step')].filter((el) => !ONLY || el.dataset.name === ONLY);
 const S = { step: 0, mic: 'ask', claude: null, voice: null, ai: 'pick', enrolled: false, skippedVoice: false, folders: new Map(), loginItem: false, macos: '', appleStt: true };
 let pollClaude = null;
-const AI = { providers: [], picked: new Set(), connected: {}, def: null, claudeWay: 'subscription' };
+const AI = { providers: [], picked: new Set(), connected: {}, def: null, way: {} };
 
 // step dots
 $('dots').innerHTML = steps.map(() => '<div class="dot"></div>').join('');
@@ -299,7 +299,7 @@ const dots = [...document.querySelectorAll('.dot')];
 function canGo() {
   const name = steps[S.step].dataset.name;
   if (name === 'mic') return S.mic === 'granted';
-  if (name === 'ai') return S.ai === 'pick' ? AI.picked.size > 0 : !!(S.claude && S.claude.installed) && Object.keys(AI.connected).length > 0;
+  if (name === 'ai') return S.ai === 'pick' ? AI.picked.size > 0 : (!needsClaudeCode() || !!(S.claude && S.claude.installed)) && Object.keys(AI.connected).length > 0;
   if (name === 'voice') return !!S.voice;
   if (name === 'enroll') return S.enrolled || S.skippedVoice;
   return true;
@@ -373,14 +373,15 @@ function drawTiles() {
   });
 }
 const prov = (id) => AI.providers.find((p) => p.id === id);
-function wayOf(id) { return id === 'claude' ? AI.claudeWay : prov(id).ways[0]; }
+function wayOf(id) { return AI.way[id] || prov(id).ways[0]; }
+// Claude Code is needed for Claude and the providers that run in it, not for the other agents.
+function needsClaudeCode() { return [...AI.picked].some((id) => prov(id) && !prov(id).agent); }
 function drawCards() {
   const ids = AI.providers.map((p) => p.id).filter((id) => AI.picked.has(id) || AI.connected[id]);
   $('aiCards').innerHTML = ids.map((id) => {
     const p = prov(id);
-    const ways = id === 'claude' ? `<div class="ways">
-        <div class="way${AI.claudeWay === 'subscription' ? ' sel' : ''}" data-w="subscription">My Claude subscription<span>Pro or Max: sign in with your Claude account</span></div>
-        <div class="way${AI.claudeWay === 'key' ? ' sel' : ''}" data-w="key">An Anthropic API key<span>Pay as you go, billed by Anthropic</span></div></div>` : '';
+    const ways = p.ways.length > 1 ? `<div class="ways" data-p="${id}">` + p.ways.map((w) => `<div class="way${wayOf(id) === w ? ' sel' : ''}" data-w="${w}">
+        ${esc((p.way_names[w] || [w])[0])}<span>${esc((p.way_names[w] || ['', ''])[1])}</span></div>`).join('') + '</div>' : '';
     return `<div class="conn" id="conn-${id}" data-p="${id}"><div class="row">
         <div class="badge">${esc(p.name[0])}</div>
         <div class="grow"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.desc)}</div></div>
@@ -391,14 +392,25 @@ function drawCards() {
         <div class="check" id="def-${id}"><div class="box"></div>My default</div></div></div>`;
   }).join('');
   ids.forEach((id) => { drawBody(id); showConn(id); });
-  document.querySelectorAll('.way').forEach((el) => el.onclick = () => {
-    AI.claudeWay = el.dataset.w; document.querySelectorAll('.way').forEach((w) => w.classList.toggle('sel', w === el)); drawBody('claude');
-  });
+  $('ccReq').classList.toggle('hidden', !needsClaudeCode());
+  document.querySelectorAll('.ways').forEach((box) => box.querySelectorAll('.way').forEach((el) => el.onclick = () => {
+    const id = box.dataset.p; AI.way[id] = el.dataset.w;
+    box.querySelectorAll('.way').forEach((w) => w.classList.toggle('sel', w === el)); drawBody(id);
+  }));
 }
 function drawBody(id) {
   const p = prov(id), way = wayOf(id), body = $('body-' + id);
   const getKey = p.key_url ? ` No key yet? <a data-url="${esc(p.key_url)}">Get one from ${esc(p.maker)}</a>` : '';
-  if (way === 'subscription') {
+  if (way === 'subscription' && id === 'opencode') {
+    body.innerHTML = `<div class="row"><div class="grow sub" id="sub-${id}">Juniper installs OpenCode if needed. It works straight away with its free models; sign in to a provider in it for more.</div><button class="primary" id="go-${id}">Set up</button></div>
+      <div class="row hidden" id="login-${id}" style="margin-top:8px"><div class="grow sub">Sign in to GitHub Copilot, ChatGPT or another provider, in Terminal.</div><button id="li-${id}">Sign in…</button></div>`;
+    $('go-' + id).onclick = () => connect(id, {});
+    $('li-' + id).onclick = () => send('ai_login', { provider: id });
+  } else if (way === 'subscription' && id !== 'claude') {
+    const who = id === 'codex' ? 'ChatGPT' : 'Google';
+    body.innerHTML = `<div class="row"><div class="grow sub" id="sub-${id}">Juniper installs ${esc(p.name)} if needed, then your browser opens to sign in with ${who}. Your password and login go to ${who} only.</div><button class="primary" id="go-${id}">Sign in</button></div>`;
+    $('go-' + id).onclick = () => connect(id, {});
+  } else if (way === 'subscription') {
     body.innerHTML = `<div class="row"><div class="grow sub" id="sub-${id}">Sign in with the Claude account you already pay for.</div><button class="primary" id="go-${id}">Sign in</button></div>`;
     $('go-' + id).onclick = () => {
       send('claude_login'); $('sub-' + id).textContent = 'Finish signing in in your browser (and Terminal, if it asks for a code). This updates by itself.';
@@ -437,17 +449,19 @@ function showConn(id) {
   const sel = $('sel-' + id), models = c.models && c.models.length ? c.models : (c.model ? [c.model] : []);
   sel.classList.toggle('hidden', id === 'claude');
   row.querySelector('.sub').classList.toggle('hidden', id === 'claude');
-  sel.innerHTML = models.map((m) => `<option value="${esc(m)}"${m === c.model ? ' selected' : ''}>${esc(m)}</option>`).join('');
+  sel.innerHTML = models.map((m) => `<option value="${esc(m)}"${m === c.model ? ' selected' : ''}>${esc((c.names || {})[m] || m)}</option>`).join('');
   sel.onchange = () => { c.model = sel.value; send('ai_model', { provider: id, model: sel.value }); };
   const def = $('def-' + id); def.classList.toggle('sel', AI.def === id);
   def.onclick = () => { AI.def = id; send('ai_default', { provider: id }); Object.keys(AI.connected).forEach(showConn); };
 }
 function showAiResult(r) {
   const go = $('go-' + r.provider);
-  if (go) { go.disabled = false; go.textContent = wayOf(r.provider) === 'local' ? 'Check again' : 'Connect'; }
+  if (go) { go.disabled = false; go.textContent = wayOf(r.provider) === 'local' ? 'Check again' : wayOf(r.provider) === 'subscription' ? 'Try again' : 'Connect'; }
+  if (r.ok && go && wayOf(r.provider) === 'subscription' && r.provider !== 'claude') go.classList.add('hidden');
+  if (r.ok && $('login-' + r.provider)) $('login-' + r.provider).classList.remove('hidden');
   const msg = $('msg-' + r.provider);
   if (r.ok) {
-    AI.connected[r.provider] = { way: r.way, model: r.model, models: r.models || [] };
+    AI.connected[r.provider] = { way: r.way, model: r.model, models: r.models || [], names: r.model_names || {} };
     AI.def = r.default;
     if (msg) { msg.className = 'msg ' + (r.message ? '' : 'good'); msg.textContent = r.message || (r.way === 'key' ? '✓ Connected. The key is in your Keychain.' : '✓ Connected.'); }
     const key = $('key-' + r.provider); if (key) key.value = '';
@@ -461,7 +475,7 @@ function showClaude(c) {
   pill.textContent = c.installed ? 'Installed' + (c.version ? ' · ' + c.version : '') : 'Not installed';
   pill.className = 'pill' + (c.installed ? ' ok' : ' bad');
   $('ccInstall').classList.toggle('hidden', !!c.installed);
-  if (c.installed && AI.picked.has('claude') && AI.claudeWay === 'subscription') {
+  if (c.installed && AI.picked.has('claude') && wayOf('claude') === 'subscription') {
     const sub = $('sub-claude');
     if (c.loggedIn) {
       if (pollClaude) { clearInterval(pollClaude); pollClaude = null; }
@@ -548,9 +562,10 @@ window.hc = {
     else if (event === 'mic') showMic(d.status);
     else if (event === 'claude') showClaude(d);
     else if (event === 'ai_state') { AI.providers = d.providers; AI.connected = d.connected; AI.def = d.default;
-      Object.keys(d.connected).forEach((id) => AI.picked.add(id)); if (d.connected.claude) AI.claudeWay = d.connected.claude.way === 'key' ? 'key' : 'subscription';
+      Object.keys(d.connected).forEach((id) => { AI.picked.add(id); if (d.connected[id].way) AI.way[id] = d.connected[id].way; });
       drawTiles(); if (ONLY && Object.keys(d.connected).length) aiPhase('connect'); render(); }
     else if (event === 'ai_result') showAiResult(d);
+    else if (event === 'ai_progress') { const m = $('msg-' + d.provider); if (m) { m.className = 'msg'; m.textContent = d.line; } }
     else if (event === 'install_line') { const l = $('ccLog'); const div = document.createElement('div'); div.textContent = d; l.appendChild(div); while (l.children.length > 6) l.firstChild.remove(); }
     else if (event === 'install_done' && !d.ok) { $('ccInstall').disabled = false; $('ccInstall').textContent = 'Try again'; }
     else if (event === 'eleven') showEleven(d);
