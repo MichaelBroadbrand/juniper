@@ -1,5 +1,6 @@
-"""First-run setup: a window that walks a new user through permissions, connecting Claude Code,
-choosing a voice, teaching Juniper their voice, and where their projects live.
+"""First-run setup: a window that walks a new user through permissions, connecting the AIs they
+use, choosing a voice, teaching Juniper their voice, and where their projects live. The menu bar's
+"Add or change AIs" opens the same window with just the AI step (open_window(only="ai")).
 
 The page is onboarding/index.html in a WKWebView; it talks to this file through
 `window.webkit.messageHandlers.hc.postMessage({cmd, ...})`, and this file answers by calling
@@ -49,8 +50,10 @@ def eleven(path, key, timeout=15):
 class Setup:
     """What the page can ask for. Each handler gets the message dict; results go back with emit()."""
 
-    def __init__(self, cfg, config_path, web):
-        self.cfg, self.config_path, self.web = cfg, config_path, web
+    def __init__(self, cfg, config_path, web, on_done=None):
+        import connections
+        self.cfg, self.config_path, self.web, self.on_done = cfg, config_path, web, on_done
+        self.conns = connections.Connections()
         self.choices = {}            # what the user picked, written to config.toml at the end
         self.enroller = None
         self.done = False
@@ -130,6 +133,41 @@ class Setup:
         exe = find_claude(self.cfg.get("claude_path", "")) or "claude"
         script = f'tell application "Terminal" to do script "{exe} auth login"\ntell application "Terminal" to activate'
         subprocess.run(["osascript", "-e", script])
+
+    # ── your AI ──────────────────────────────────────────────────────────────────────────
+    def cmd_ai_state(self, _):
+        import connections
+        providers = [{"id": k, "name": p["name"], "maker": p["maker"], "blurb": p["blurb"], "ways": p["ways"],
+                      "desc": connections.describe(k), "key_url": p.get("key_url", ""), "key_hint": p.get("key_hint", ""),
+                      "note": p.get("note", "")} for k, p in connections.PROVIDERS.items()]
+        if not self.conns.saved and self.on_done:
+            # Opened from the menu bar by someone who's been using Claude with their subscription
+            # all along: that counts as connected, so adding another AI doesn't drop it.
+            self.conns.set("claude", provider="claude", way="subscription")
+        connected = {k: {"way": v.get("way"), "model": v.get("model", ""), "models": v.get("models") or []}
+                     for k, v in self.conns.saved.items()}
+        self.emit("ai_state", {"providers": providers, "connected": connected,
+                               "default": self.conns.default if self.conns.saved else None})
+
+    def cmd_ai_connect(self, msg):
+        import connections
+        provider, way = msg.get("provider"), msg.get("way") or "key"
+        if provider not in connections.PROVIDERS:
+            return
+        if provider == "claude" and way == "subscription":
+            self.conns.set("claude", provider="claude", way="subscription")       # signed in (claude_status)
+            r = {"ok": True, "message": "", "models": [], "model": ""}
+        else:
+            r = connections.connect(self.conns, provider, way, key=msg.get("key", ""), base_url=msg.get("base_url", ""),
+                                    model=msg.get("model", ""), name=msg.get("name", ""))
+        self.emit("ai_result", {"provider": provider, "way": way, **r, "default": self.conns.default})
+
+    def cmd_ai_model(self, msg):
+        if msg.get("provider") in self.conns.saved:
+            self.conns.set(msg["provider"], model=str(msg.get("model", "")))
+
+    def cmd_ai_default(self, msg):
+        self.conns.set_default(msg.get("provider"))
 
     # ── voice ────────────────────────────────────────────────────────────────────────────
     def cmd_eleven_key(self, msg):
@@ -237,6 +275,10 @@ class Setup:
                                                f'properties {{path:"{app}", hidden:true}}'], capture_output=True)
 
     def cmd_finish(self, _):
+        if self.on_done:                     # just the AI step, from the menu bar: Juniper keeps running
+            self.done = True
+            on_main(self.on_done)
+            return
         if self.enroller:
             self.enroller.stop = True
         if self.choices:
@@ -322,13 +364,17 @@ class _NavDelegate(NSObject):
 
 class _WindowDelegate(NSObject):
     def windowWillClose_(self, note):
-        AppKit.NSApp.stop_(None)
+        if self.on_close:
+            self.on_close()
+        else:
+            AppKit.NSApp.stop_(None)
 
 
-def run(cfg, config_path):
-    """Shows the setup window until it's finished (True) or closed (False)."""
+def open_window(cfg, config_path, only="", on_done=None):
+    """Builds and shows the setup window. Returns (window, setup); keep them while it's open.
+    only="ai" shows just the AI step, with on_done called (on the main thread) when it's done
+    or closed, without stopping the app it's running in."""
     app = AppKit.NSApplication.sharedApplication()
-    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
     W, H = 820, 600
     style = (AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable |
              AppKit.NSWindowStyleMaskFullSizeContentView | AppKit.NSWindowStyleMaskMiniaturizable)
@@ -337,9 +383,9 @@ def run(cfg, config_path):
     win.setTitlebarAppearsTransparent_(True)
     win.setTitleVisibility_(AppKit.NSWindowTitleHidden)
     win.setMovableByWindowBackground_(True)
-    win.setBackgroundColor_(AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(0.08, 0.065, 0.06, 1))
+    win.setBackgroundColor_(AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(0.06, 0.07, 0.095, 1))
     win.setAppearance_(AppKit.NSAppearance.appearanceNamed_(AppKit.NSAppearanceNameDarkAqua))
-    win.setTitle_("Set up Juniper")
+    win.setTitle_("Your AI · Juniper" if only else "Set up Juniper")
     win.center()
 
     conf = WebKit.WKWebViewConfiguration.alloc().init()
@@ -348,17 +394,26 @@ def run(cfg, config_path):
     web = WebKit.WKWebView.alloc().initWithFrame_configuration_(AppKit.NSMakeRect(0, 0, W, H), conf)
     web.setValue_forKey_(False, "drawsBackground")
     web.setAutoresizingMask_(AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable)
-    setup = Setup(cfg, config_path, web)
+    closed = []
+
+    def finish():
+        if not closed:
+            closed.append(True)
+            win.orderOut_(None)
+            on_done()
+    setup = Setup(cfg, config_path, web, finish if on_done else None)
     handler = _Handler.alloc().init()
     handler.setup = setup
     controller.addScriptMessageHandler_name_(handler, "hc")
     nav = _NavDelegate.alloc().init()
     web.setNavigationDelegate_(nav)
-    html = PAGE.read_text().replace("{{LOGO}}", LOGO.read_text())
+    html = PAGE.read_text().replace("{{LOGO}}", LOGO.read_text()).replace("{{ONLY}}", only)
     web.loadHTMLString_baseURL_(html, NSURL.fileURLWithPath_(str(PAGE.parent) + "/"))
     win.setContentView_(web)
     delegate = _WindowDelegate.alloc().init()
+    delegate.on_close = finish if on_done else None
     win.setDelegate_(delegate)
+    win.setReleasedWhenClosed_(False)
     win.makeKeyAndOrderFront_(None)
 
     def bring_forward():
@@ -370,7 +425,16 @@ def run(cfg, config_path):
             app.activateIgnoringOtherApps_(True)
         win.makeKeyWindow()
     on_main(bring_forward)
-    log("setup", "showing first-run setup", "green")
+    log("setup", "showing the AI step" if only else "showing first-run setup", "green")
+    setup.keep = (win, handler, nav, delegate, controller)    # Cocoa holds some of these weakly: keep them alive
+    return win, setup
+
+
+def run(cfg, config_path):
+    """Shows the first-run setup until it's finished (True) or closed (False)."""
+    app = AppKit.NSApplication.sharedApplication()
+    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
+    win, setup = open_window(cfg, config_path)
     app.run()
     win.orderOut_(None)
     return setup.done

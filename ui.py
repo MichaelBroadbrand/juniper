@@ -579,6 +579,15 @@ class _Actions(AppKit.NSObject):
         if _ui:
             _ui.app.set_effort(sender.representedObject())
 
+    def pickAI_(self, sender):
+        if _ui:
+            cid = sender.representedObject()
+            threading.Thread(target=lambda: _ui.app.answer(f"Use {cid}", _ui.app.set_ai(cid)), daemon=True).start()
+
+    def addAI_(self, sender):
+        if _ui:
+            _ui.add_ai()
+
     def slash_(self, sender):
         if _ui:
             _ui.overlay.complete_slash(sender.tag())
@@ -1414,7 +1423,8 @@ class Overlay:
         self._crossfade(self.step, step)
         self._crossfade(self.note, note)
         self.placeholder.setHidden_(bool(self.text()))
-        self.placeholder.setStringValue_("Reply to Claude…" if approval else "Ask Claude…  (/ for commands, Shift-Return for a new line)")
+        who = _ui.app.ai_name() if _ui else "Claude"
+        self.placeholder.setStringValue_(f"Reply to {who}…" if approval else f"Ask {who}…  (/ for commands, Shift-Return for a new line)")
         self._toolbar(mode, model, ctx)
         names = ", ".join(os.path.basename(f) for f in files)
         self.attach_label.setStringValue_(f"📎 {names}" if files else "")
@@ -2085,14 +2095,15 @@ class StatusPopover:
     def _key(self):
         app, ss = self.ui.app, self.ui.app.sessions
         sessions = tuple((n, ss.current == n, app.runner_for(n).busy(), app.approvals.waiting(n),
-                          bool(ss.get(n).get("unread")), ss.get(n).get("mode"), ss.get(n).get("model"))
+                          bool(ss.get(n).get("unread")), ss.get(n).get("mode"), ss.get(n).get("model"), ss.get(n).get("ai"))
                          for n in ss.names())
         info = app.info
         up = app.updater
         return ((up.status, up.checking, bool(up.app_update)) if up else None,
                 self.ui.status_line.title, app.open_mic, app.show_logo, app.speak_answers, app.speak_typed,
                 app.speaker.use_eleven, sessions, self.tab, tuple(sorted(info.fetched.items())),
-                tuple(sorted(info.busy)), info.version_note, ss.get().get("effort"), ss.get().get("context_used"))
+                tuple(sorted(info.busy)), info.version_note, ss.get().get("effort"), ss.get().get("context_used"),
+                tuple(app.connections.items), app.connections.default)
 
     # -- building blocks ----------------------------------------------------------------------
 
@@ -2303,6 +2314,21 @@ class StatusPopover:
             self._pill(W - P - 120, y, "arrow.clockwise", "Check now",
                        lambda: threading.Thread(target=up.check, kwargs={"manual": True}, daemon=True).start())
         y += 48
+        # Your AIs: which are connected, the default for new sessions, and a way to add or change them.
+        import connections
+        y = self._section(y, "Your AI")
+        for cid in app.connections.items:
+            conn = app.connections.get(cid)
+            self._text(connections.label(conn), 12.5, AppKit.NSFontWeightSemibold, x=P, y=y + 2, w=W - 2 * P - 90)
+            if cid == app.connections.default:
+                self._text("default", 10.5, AppKit.NSFontWeightMedium, ACCENT, x=W - P - 80, y=y + 4, w=80,
+                           align=AppKit.NSTextAlignmentRight)
+            y += 22
+        self._pill(P, y + 4, "plus.circle", "Add or change AIs…", ui.add_ai)
+        y += 40
+        self._text("Keys stay in your Keychain and only go to their own AI. Juniper has no servers.", 10.5,
+                   color=AppKit.NSColor.tertiaryLabelColor(), x=P, y=y, w=W - 2 * P)
+        y += 26
         # Claude Code itself.
         y = self._section(y, "Claude Code")
         self._text(f"Version {info.get('version') or '…'}", 12.5, AppKit.NSFontWeightSemibold, x=P, y=y + 4, w=150)
@@ -2440,7 +2466,7 @@ class StatusPopover:
             row.addSubview_(title)
             folder = os.path.basename(s["folder"]) or "~"
             detail = _label(11, AppKit.NSFontWeightRegular, AppKit.NSColor.secondaryLabelColor())
-            detail.setStringValue_(f"{folder}  ·  {model_label(s.get('model') or cfg['model'])}  ·  "
+            detail.setStringValue_(f"{folder}  ·  {app.ai_label(name)}  ·  "
                                    f"{mode_label(s.get('mode') or cfg['permission_mode'])}")
             detail.setFrame_(AppKit.NSMakeRect(22, 27, W - 2 * P - 40, 15))
             row.addSubview_(detail)
@@ -2628,6 +2654,7 @@ class MenuBar(rumps.App):
             self.eleven_item,
             rumps.MenuItem("Settings…", callback=lambda _: subprocess.Popen(["open", "-t", str(DATA / "config.toml")])),
             rumps.MenuItem("Log…", callback=lambda _: subprocess.Popen(["open", "-a", "Console", str(LOG_PATH)])),
+            rumps.MenuItem("Add or change AIs…", callback=lambda _: self.add_ai()),
             rumps.MenuItem("Set up again…", callback=lambda _: self.setup_again()),
             None,
             rumps.MenuItem("Quit Juniper", callback=self.quit),
@@ -2720,33 +2747,70 @@ class MenuBar(rumps.App):
 
     def chip_menu(self, chip, kind):
         """The mode and model chips: a little menu, ticked at the current choice."""
+        if kind == "model":
+            return self.model_menu(chip)
         s = self.app.sessions.get()
-        current = s.get(kind) or self.cfg["permission_mode" if kind == "mode" else "model"]
+        current = s.get(kind) or self.cfg["permission_mode"]
         menu = AppKit.NSMenu.alloc().initWithTitle_(kind)
-        for value, label in (MODES if kind == "mode" else MODELS):
-            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                label, "pickMode:" if kind == "mode" else "pickModel:", "")
+        for value, label in MODES:
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(label, "pickMode:", "")
             item.setTarget_(self.overlay.actions)
             item.setRepresentedObject_(value)
             item.setState_(int(value == current))
             menu.addItem_(item)
-        if kind == "mode":
-            menu.addItem_(AppKit.NSMenuItem.separatorItem())
-            tip = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Shift-Tab in the text box cycles modes", None, "")
-            tip.setEnabled_(False)
-            menu.addItem_(tip)
-        else:
-            menu.addItem_(AppKit.NSMenuItem.separatorItem())
-            head = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Effort", None, "")
-            head.setEnabled_(False)
-            menu.addItem_(head)
-            for e in EFFORTS:
-                item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(e.title(), "pickEffort:", "")
-                item.setTarget_(self.overlay.actions)
-                item.setRepresentedObject_(e)
-                item.setState_(int(e == s.get("effort")))
-                menu.addItem_(item)
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+        tip = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Shift-Tab in the text box cycles modes", None, "")
+        tip.setEnabled_(False)
+        menu.addItem_(tip)
         menu.popUpMenuPositioningItem_atLocation_inView_(None, (0, -4), chip.superview() or chip)
+
+    def model_menu(self, chip):
+        """The model chip: this session's model, the AI it uses (switching starts afresh), and for
+        Claude how hard it thinks."""
+        import connections
+        app = self.app
+        s, conn = app.sessions.get(), app.connection_for()
+        claude = conn["provider"] == "claude"
+        menu = AppKit.NSMenu.alloc().initWithTitle_("model")
+
+        def add(title, action=None, value=None, on=False):
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, "")
+            if action:
+                item.setTarget_(self.overlay.actions)
+                item.setRepresentedObject_(value)
+            else:
+                item.setEnabled_(False)
+            item.setState_(int(on))
+            menu.addItem_(item)
+        add("Model")
+        current = s.get("model") or (self.cfg["model"] if claude else conn.get("model"))
+        for value, label in (MODELS if claude else [(m, m) for m in (conn.get("models") or [conn.get("model")])[:30] if m]):
+            add(label, "pickModel:", value, value == current)
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+        add("AI for this session (switching starts afresh)")
+        for cid in app.connections.items:
+            title = connections.label(app.connections.get(cid))
+            add(title + ("   · default" if cid == app.connections.default else ""), "pickAI:", cid, cid == conn["id"])
+        add("Add or change AIs…", "addAI:")
+        if claude:
+            menu.addItem_(AppKit.NSMenuItem.separatorItem())
+            add("Effort")
+            for e in EFFORTS:
+                add(e.title(), "pickEffort:", e, e == s.get("effort"))
+        menu.popUpMenuPositioningItem_atLocation_inView_(None, (0, -4), chip.superview() or chip)
+
+    def add_ai(self, _=None):
+        """The setup window's AI step, while Juniper keeps running; your AIs reload when it closes."""
+        import onboarding
+        if getattr(self, "ai_setup", None):
+            self.ai_setup[0].makeKeyAndOrderFront_(None)
+            return
+
+        def done():
+            self.app.connections.load()
+            self.ai_setup = None
+            log("ai", f"your AIs: {', '.join(self.app.connections.items)} (default {self.app.connections.default})", "green")
+        self.ai_setup = onboarding.open_window(self.cfg, DATA / "config.toml", only="ai", on_done=done)
 
     def card_choice(self, i):
         o = self.overlay
@@ -3133,7 +3197,7 @@ class MenuBar(rumps.App):
                     rows.append((n, os.path.basename(app.sessions.get(n)["folder"]) or "~", st, n == app.sessions.current))
             self.overlay.render(status, status_color, turns, step, phase == "busy" and not approval, app.sessions.current,
                                 note, tuple(app.attachments), app.runner.busy() or speaking,
-                                sess.get("mode") or self.cfg["permission_mode"], sess.get("model") or self.cfg["model"],
+                                sess.get("mode") or self.cfg["permission_mode"], app.ai_label(),
                                 (sess.get("context_used") or 0, sess.get("context_window") or 0), approval,
                                 self.overlay.slash_candidates(app.slash_commands, app.skills), rows,
                                 tuple(s for _, _, s in app.runner.queued))

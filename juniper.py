@@ -692,10 +692,15 @@ class Sessions:
         return files[-1].stem if files else None
 
 
-def claude_env():
-    """Use the subscription login, not an API key, and don't look like a nested session."""
-    return {k: v for k, v in os.environ.items()
-            if k not in ("ANTHROPIC_API_KEY", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT")}
+def claude_env(extra=None):
+    """Claude Code's environment: no API key from wherever Juniper was started (the session's AI
+    decides how it signs in), nothing that looks like a nested session, plus what the AI needs
+    (connections.launch: the provider's address and model names, never a key)."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
+                        "CLAUDE_CODE_SSE_PORT")}
+    env.update(extra or {})
+    return env
 
 
 # Requests with any of these words might be about sessions; a quick Claude call decides whether they are.
@@ -740,15 +745,20 @@ class Router:
                 found |= {str(p) for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")}
         return sorted(found)
 
-    def route(self, text, sessions):
+    def route(self, text, sessions, conn):
+        """Works out a session command with a quick call to your default AI."""
+        import connections
+        env, settings, _ = connections.launch(conn)
+        model = self.cfg["router_model"] if conn["provider"] == "claude" else conn.get("fast_model") or conn.get("model")
         prompt = ROUTER_PROMPT.format(
             sessions=json.dumps({n: s["folder"] for n, s in sessions.items.items()}), current=sessions.current,
             folders=json.dumps(self.folders(sessions)), home=os.path.expanduser("~"), command=text)
         out = subprocess.run(
-            [self.claude, "-p", prompt, "--model", self.cfg["router_model"], "--output-format", "json",
+            [self.claude, "-p", prompt, "--model", model, "--output-format", "json",
              "--system-prompt", "You route voice commands. Reply with JSON only.", "--setting-sources", "",
-             "--strict-mcp-config", "--tools", "", "--disable-slash-commands", "--no-session-persistence"],
-            capture_output=True, text=True, timeout=60, env=claude_env(), cwd=str(HERE))
+             "--settings", json.dumps(settings), "--strict-mcp-config", "--tools", "", "--disable-slash-commands",
+             "--no-session-persistence"],
+            capture_output=True, text=True, timeout=60, env=claude_env(env), cwd=str(HERE))
         result = json.loads(out.stdout)["result"]
         result = json.loads(result[result.index("{"):result.rindex("}") + 1])
         log("route", json.dumps(result), "dim")
@@ -763,7 +773,7 @@ EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 # Juniper's own slash commands (Claude Code's, and your skills, come from Claude Code itself).
 LOCAL_COMMANDS = [("/clear", "Start this session fresh"), ("/compact", "Summarise the conversation to free up context"),
                   ("/mode", "Switch mode: auto, ask, edits, plan, bypass"), ("/model", "Switch model: opus, sonnet, haiku, fable"),
-                  ("/sessions", "Show the sessions sidebar"), ("/effort", "How hard Claude thinks: low … max"),
+                  ("/sessions", "Show the sessions sidebar"), ("/ai", "Use another of your AIs here, e.g. /ai deepseek"), ("/effort", "How hard Claude thinks: low … max"),
                   ("/usage", "Your plan's usage limits and account"), ("/new", "New session for a project folder, e.g. /new storefront"),
                   ("/stop", "Stop the current task"), ("/help", "What you can type here")]
 YES_RE = re.compile(r"^\W*(yes|yeah|yep|yup|sure|ok|okay|allow( it)?|approve( it)?|go ahead|do it|go for it|fine|"
@@ -1162,10 +1172,13 @@ class ClaudeRunner:
         if not self.alive():
             return
         s = self.sessions.get(self.name)
+        conn = self.app.connection_for(self.name)
+        claude = conn["provider"] == "claude"
         self._control("set_permission_mode", mode=s.get("mode") or self.cfg["permission_mode"])
-        if s.get("model") or self.cfg["model"]:
-            self._control("set_model", model=s.get("model") or self.cfg["model"])
-        if s.get("effort"):
+        model = s.get("model") or (self.cfg["model"] if claude else conn.get("model"))
+        if model:
+            self._control("set_model", model=model)
+        if s.get("effort") and claude:
             self._control("apply_flag_settings", settings={"effortLevel": s["effort"]})
 
     def stop(self):
@@ -1212,6 +1225,10 @@ class ClaudeRunner:
         self._write({"type": "control_request", "request_id": f"hc-{self.requests}", "request": {"subtype": subtype, **fields}})
 
     def _spawn(self, session):
+        import connections
+        conn = self.app.connection_for(self.name)
+        claude = conn["provider"] == "claude"
+        env, settings, model = connections.launch(conn, session.get("model") or (self.cfg["model"] if claude else None))
         prompt_extra = VOICE_PROMPT.format(name=self.cfg["wake_name"])
         if self.cfg["vocabulary"]:
             prompt_extra += ("\n\nNames and terms this user often says, which speech recognition tends to mangle "
@@ -1220,7 +1237,7 @@ class ClaudeRunner:
         hooks = {"hooks": {
             "PreToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": f"'{hook}' pre '{flag}'"}]}],
             "PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": f"'{hook}' post '{flag}'"}]}],
-        }}
+        }, **settings}
         # Permission requests come to the overlay (or your voice) through bin/approve_mcp.py.
         bridge = {"mcpServers": {"juniper": {"command": PYTHON, "args": [str(HERE / "bin" / "approve_mcp.py")],
                                              "env": {"JUNIPER_SOCK": str(Approvals.PATH), "JUNIPER_SESSION": self.name}}}}
@@ -1228,10 +1245,9 @@ class ClaudeRunner:
                 "--permission-mode", session.get("mode") or self.cfg["permission_mode"],
                 "--append-system-prompt", prompt_extra, "--settings", json.dumps(hooks), "--mcp-config", json.dumps(bridge),
                 "--permission-prompt-tool", "mcp__juniper__approve"]
-        model = session.get("model") or self.cfg["model"]
         if model:
             args += ["--model", model]
-        if session.get("effort"):
+        if session.get("effort") and claude:
             args += ["--effort", session["effort"]]
         if session["session_id"] and not Sessions.transcript(session["folder"], session["session_id"]).exists():
             # e.g. a first request stopped before Claude Code saved anything: there's nothing to continue.
@@ -1240,11 +1256,12 @@ class ClaudeRunner:
         if session["session_id"]:
             args += ["--resume", session["session_id"]]
         self.stderr.clear()
-        self.proc = proc = subprocess.Popen(args, cwd=session["folder"], env=claude_env(), text=True, bufsize=1,
+        self.proc = proc = subprocess.Popen(args, cwd=session["folder"], env=claude_env(env), text=True, bufsize=1,
                                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         threading.Thread(target=self._read, args=(proc,), daemon=True).start()
         threading.Thread(target=lambda: [self.stderr.append(l.rstrip()) for l in proc.stderr], daemon=True).start()
-        log("claude", f"[{self.name}] started Claude Code{' (continuing)' if session['session_id'] else ''}", "dim")
+        log("claude", f"[{self.name}] started Claude Code with {connections.label(conn, model)}"
+                      f"{' (continuing)' if session['session_id'] else ''}", "dim")
 
     def _send(self, turn):
         session = self.sessions.get(self.name)
@@ -1728,6 +1745,8 @@ class App:
         self.ui_requests = queue.Queue()     # things only the menu bar can do (e.g. show the sidebar)
         self.ui_busy = lambda: False         # the menu bar says whether you're mid-way through typing
         self.updater = None
+        import connections
+        self.connections = connections.Connections()     # your AIs (connections.json)
         self.sherpa = cfg["wake_engine"] == "sherpa"
         self.wake_re, self.verify_re, self.lead_re = wake_patterns(cfg["wake_name"])
         self.transcriber = Transcriber(cfg, need_quick=not self.sherpa)
@@ -1919,7 +1938,7 @@ class App:
             chime(self.cfg, "Pop")
             self.state.set(working=True)
             try:
-                route = self.router.route(text, self.sessions)
+                route = self.router.route(text, self.sessions, self.connections.get())
             except Exception as e:
                 log("error", f"couldn't work out the session command ({e!r}); treating it as a request", "red")
                 route = {"action": "none"}
@@ -2083,6 +2102,10 @@ class App:
                 self.sessions.get(name)["session_id"] = sid
             else:
                 name = self.sessions.create(route.get("session") or os.path.basename(folder), folder, sid)
+                ai = None if sid else self.connections.find(text, asked=True)     # "… on DeepSeek"
+                if ai:
+                    self.sessions.get(name)["ai"] = ai
+                    self.sessions.save()
             self.enter_session(name)
             log("session", f"{action} {name} in {folder}", "green")
             if not then:
@@ -2110,9 +2133,14 @@ class App:
                         f"You're in {mode_label(self.sessions.get().get('mode') or self.cfg['permission_mode'])} mode. "
                         "Try /mode auto, ask, edits, plan or bypass.")
         elif cmd == "/model":
+            conn = self.connection_for()
             self.answer(text, self.set_model(arg) if arg else
-                        f"This session uses {model_label(self.sessions.get().get('model') or self.cfg['model'])}. "
-                        "Try /model opus, sonnet, haiku or fable.")
+                        f"This session uses {self.ai_label()}. " + (
+                            "Try /model opus, sonnet, haiku or fable." if conn["provider"] == "claude" else
+                            "Try /model " + ", ".join((conn.get("models") or [])[:4]) + "."))
+        elif cmd == "/ai":
+            self.answer(text, self.set_ai(arg) if arg else f"This session uses {self.ai_label()}. Try /ai and the "
+                        "name of another AI you've connected.")
         elif cmd == "/effort":
             self.answer(text, self.set_effort(arg) if arg else
                         f"Effort here is {self.sessions.get().get('effort') or 'your default'}. "
@@ -2154,8 +2182,14 @@ class App:
 
     def set_model(self, wanted, name=None):
         w = wanted.strip().lower()
-        model = next((m for m, label in MODELS if w in (m, label.lower())), None) or \
-            next((m for m, label in MODELS if w and w.split()[0] in label.lower()), None)
+        conn = self.connection_for(name)
+        if conn["provider"] == "claude":
+            model = next((m for m, label in MODELS if w in (m, label.lower())), None) or \
+                next((m for m, label in MODELS if w and w.split()[0] in label.lower()), None)
+        else:            # the provider's own models (listed when you connected it)
+            choices = conn.get("models") or [conn.get("model")]
+            model = next((m for m in choices if m.lower() == w), None) or \
+                next((m for m in choices if w and w in m.lower()), None)
         if not model:
             return f"I don't know a model called {wanted}."
         self.sessions.get(name)["model"] = model
@@ -2163,6 +2197,60 @@ class App:
         self.runner_for(name or self.sessions.current).apply_settings()
         log("model", f"[{name or self.sessions.current}] {model}", "green")
         return f"Using {model_label(model)} from now on in this session."
+
+    def connection_for(self, name=None):
+        """The AI a session uses. A session keeps the one it started with (changing your default
+        doesn't swap the AI under an ongoing conversation); sessions from before there was a
+        choice were Claude's."""
+        s = self.sessions.get(name)
+        ai = s.get("ai")
+        if ai not in self.connections.items:
+            had = s.get("session_id")
+            ai = "claude" if not ai and had and "claude" in self.connections.items else self.connections.default
+            if had and (s.get("ai") or ai != "claude"):
+                s["session_id"], s["model"] = None, None      # its conversation was with an AI that's gone
+            s["ai"] = ai
+            self.sessions.save()
+        return self.connections.get(ai)
+
+    def ai_name(self, name=None):
+        """Just the AI's name ("Claude", "DeepSeek", or what you called an Other one)."""
+        import connections
+        conn = self.connection_for(name)
+        return conn.get("name") or connections.PROVIDERS[conn["provider"]]["name"]
+
+    def ai_label(self, name=None):
+        """What the model chip and the sessions list say: "Opus 5.5", "DeepSeek · deepseek-v4-pro"."""
+        import connections
+        conn, s = self.connection_for(name), self.sessions.get(name)
+        if conn["provider"] == "claude":
+            return model_label(s.get("model") or self.cfg["model"]) + (" · API key" if conn.get("way") == "key" else "")
+        return connections.label(conn, s.get("model"))
+
+    def set_ai(self, wanted, name=None):
+        """Use another of your connected AIs in a session (the chip menu, /ai or your voice). A
+        conversation can't move from one AI to another, so the session starts afresh."""
+        import connections
+        name = name or self.sessions.current
+        cid = wanted if wanted in self.connections.items else \
+            self.connections.find(wanted) or self.connections.find(wanted, asked=True)
+        if not cid:
+            have = ", ".join(c.get("name") or connections.PROVIDERS[c["provider"]]["name"] for c in self.connections.items.values())
+            return f"I don't know an AI called {wanted}. You've connected {have}."
+        title = connections.label(self.connections.get(cid))
+        if self.sessions.get(name).get("ai") == cid:
+            return f"{name} already uses {title}."
+        r = self.runner_for(name)
+        if r.busy():
+            r.cancel()
+            if r.thread:
+                r.thread.join(timeout=10)
+        r.stop()
+        self.sessions.clear(name)
+        self.sessions.get(name).update(ai=cid, model=None, context_used=0, context_window=0)
+        self.sessions.save()
+        log("ai", f"[{name}] {cid}", "green")
+        return f"{name} now uses {title}, starting a fresh conversation."
 
     def set_effort(self, wanted, name=None):
         w = wanted.strip().lower()
@@ -2601,4 +2689,5 @@ def restart():
 
 
 if __name__ == "__main__":
+    sys.modules.setdefault("juniper", sys.modules[__name__])    # ui.py and the rest share this copy
     main()
