@@ -2578,6 +2578,7 @@ class StatusPopover:
 
 _SYMBOLS = {}
 SYMBOL_PT, SYMBOL_WEIGHT, SYMBOL_BOX = 16, AppKit.NSFontWeightSemibold, (26.0, 22.0)
+BADGE_PT = 9             # the small symbol on the berries in the menu bar
 
 
 def status_item_shown(win):
@@ -2605,18 +2606,36 @@ def icon_visible(frame, screens):
 
 
 def _symbol(name):
-    """A menu bar icon centred on a fixed 26×22 canvas: an SF Symbol, or "berries:3" for a frame of
-    the logo's thinking pulse. The symbols' own sizes differ (13 to 24 pt wide, 14 to 21 tall), which
+    """A menu bar icon centred on a fixed 26×22 canvas: the berries with a small SF Symbol badge
+    for what Juniper is doing ("juniper:waveform"), "berries:3" for a frame of the thinking pulse,
+    or a plain SF Symbol. The symbols' own sizes differ (13 to 24 pt wide, 14 to 21 tall), which
     made the status item, and the popover hanging from it, move a point or two whenever the icon
     changed."""
     if name in _SYMBOLS:
         return _SYMBOLS[name]
     W, H = SYMBOL_BOX
-    if name.startswith("berries"):
+    if name.startswith("juniper:"):
+        badge = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(name[8:], "Juniper")
+        badge = badge.imageWithSymbolConfiguration_(AppKit.NSImageSymbolConfiguration.configurationWithPointSize_weight_scale_(
+            BADGE_PT, AppKit.NSFontWeightBold, AppKit.NSImageSymbolScaleSmall))
+        bw, bh = badge.size().width, badge.size().height
+        bx, by = W - 5.5, 5.0                      # the badge's centre: bottom right
+
+        def draw(rect):
+            draw_berries(W / 2 - 2, H / 2 + 1.5, 19, AppKit.NSColor.blackColor(), shine=False)
+            # Cut a gap around the badge so it reads on its own at menu bar size.
+            ctx = AppKit.NSGraphicsContext.currentContext()
+            ctx.setCompositingOperation_(AppKit.NSCompositingOperationClear)
+            r = max(bw, bh) / 2 + 1.4
+            AppKit.NSBezierPath.bezierPathWithOvalInRect_(AppKit.NSMakeRect(bx - r, by - r, 2 * r, 2 * r)).fill()
+            ctx.setCompositingOperation_(AppKit.NSCompositingOperationSourceOver)
+            badge.drawInRect_(AppKit.NSMakeRect(bx - bw / 2, by - bh / 2, bw, bh))
+            return True
+    elif name.startswith("berries"):
         frame = int(name[8:]) if name.startswith("berries:") else None
 
         def draw(rect):
-            draw_berries(W / 2, H / 2, 17, AppKit.NSColor.blackColor(), frame, shine=False)
+            draw_berries(W / 2, H / 2, 19, AppKit.NSColor.blackColor(), frame, shine=False)
             return True
     else:
         sym = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(name, "Juniper")
@@ -3203,15 +3222,15 @@ class MenuBar(rumps.App):
                    and app.runners[n].busy()]
         badge = f" {len(unread)}" if unread else ""
         if recording:
-            self._set_icon("mic.fill", badge)
+            self._set_icon("juniper:mic.fill", badge)
         elif busy:
             self._set_icon(f"berries:{think_frame(now)}", badge)
         elif speaking:
-            self._set_icon("speaker.wave.2.fill", badge)
+            self._set_icon("juniper:speaker.wave.2.fill", badge)
         elif followup:
-            self._set_icon("ear", badge)
+            self._set_icon("juniper:ear", badge)
         else:
-            self._set_icon("waveform" if app.open_mic else "mic.slash.fill", badge)
+            self._set_icon("juniper:waveform" if app.open_mic else "juniper:mic.slash.fill", badge)
 
         ptt = key_hint(self.cfg["ptt_key"])
         labels = {"recording": "Listening…", "busy": "Thinking…", "speaking": "Speaking", "followup": "Ask a follow-up…"}
