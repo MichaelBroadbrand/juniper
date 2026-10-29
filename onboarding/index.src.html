@@ -427,7 +427,7 @@ function drawBody(id) {
       <div class="row" style="margin-top:8px"><div class="grow"></div><button class="primary" id="go-${id}">Connect</button></div>`;
     $('go-' + id).onclick = () => connect(id, { key: $('key-' + id).value.trim(), base_url: $('url-' + id).value.trim(), model: $('model-' + id).value.trim(), name: $('name-' + id).value.trim() });
   } else {
-    body.innerHTML = `<div class="row"><input type="password" id="key-${id}" placeholder="Paste your ${esc(p.name)} API key (${esc(p.key_hint || 'key')})" autocomplete="off" spellcheck="false"><button class="primary" id="go-${id}">Connect</button></div>
+    body.innerHTML = `<div class="row"><input type="password" id="key-${id}" placeholder="Paste your ${esc(p.agent ? p.maker : p.name)} API key (${esc(p.key_hint || 'key')})" autocomplete="off" spellcheck="false"><button class="primary" id="go-${id}">Connect</button></div>
       <div class="msg">Kept in your Keychain, sent only to ${esc(p.maker)}.${getKey}</div>`;
     $('go-' + id).onclick = () => { const k = $('key-' + id).value.trim(); if (k) connect(id, { key: k }); };
     $('key-' + id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('go-' + id).click(); });
