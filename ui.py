@@ -1526,6 +1526,10 @@ class Overlay:
             else:
                 self.tween = None
                 self._apply(self.target)
+        elif self.sidebar_open:
+            # Sessions come, go and change state (working, new reply) without the panel resizing;
+            # _sidebar only redraws when its rows have changed.
+            self._sidebar(list(rows), total)
         if changed or view_h != getattr(self, "last_view_h", None):
             # Keep the latest in view, also when the chat area shrinks (e.g. the text box grows).
             self.last_view_h = view_h
@@ -2755,6 +2759,20 @@ class MenuBar(rumps.App):
         threading.Thread(target=self.app.switch_session, args=(name,), daemon=True).start()
 
     def sidebar_delete(self, name):
+        """The ✕ on a session, or Delete session when you right-click it: asks first, since a click
+        is easy to make by mistake and Juniper can't bring the session back."""
+        alert = AppKit.NSAlert.alloc().init()
+        alert.setIcon_(AppKit.NSImage.imageWithSize_flipped_drawingHandler_(
+            (64, 64), False, lambda rect: draw_berries(32, 32, 52, ACCENT) or True))
+        alert.setMessageText_(f"Delete the {name} session?")
+        alert.setInformativeText_("It comes off your list, and anything it's doing stops. The conversation itself "
+                                  "is kept: claude --resume in its folder can still open it.")
+        delete = alert.addButtonWithTitle_("Delete")
+        delete.setHasDestructiveAction_(True)
+        alert.addButtonWithTitle_("Cancel")
+        AppKit.NSApp.activateIgnoringOtherApps_(True)
+        if alert.runModal() != AppKit.NSAlertFirstButtonReturn:
+            return
         self.overlay.drafts.pop(name, None)
         threading.Thread(target=self.app.delete_session, args=(name,), daemon=True).start()
 

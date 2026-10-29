@@ -708,7 +708,7 @@ def claude_env():
 
 # Requests with any of these words might be about sessions; a quick Claude call decides whether they are.
 SESSION_WORDS = re.compile(r"\b(sessions?|switch|swap|go back to|compact|clear|start (?:over|fresh)|new (?:conversation|chat)"
-                           r"|pick up|fresh conversation|delete|remove|get rid of)\b", re.I)
+                           r"|pick up|fresh conversation)\b", re.I)
 
 ROUTER_PROMPT = """You route voice commands for a voice assistant that keeps several Claude Code sessions, \
 each tied to a project folder. Speech recognition often mangles names (e.g. "store front" or "stored front" for storefront), \
