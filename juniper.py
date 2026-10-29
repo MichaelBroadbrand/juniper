@@ -1751,6 +1751,7 @@ class App:
         self.pending_wake = b""
         self.followup_from = 0.0
         self.awaiting_until = 0.0
+        self.confirm_delete = None           # (session name, asked at): a spoken delete waiting for "yes"
         self.followup_used_at = 0.0
         self.utterances = queue.Queue()
         self.last_thread = None
@@ -1910,6 +1911,15 @@ class App:
             chime(self.cfg, "Pop")
             self.state.set(dismissed=True)
             return
+        if self.confirm_delete:
+            name, asked = self.confirm_delete
+            self.confirm_delete = None
+            if time.time() - asked < 60 and YES_RE.match(text):
+                self.delete_session(name, you=text)
+                return
+            if time.time() - asked < 60 and NO_RE.match(text):
+                self.answer(text, f"Okay, I'll keep the {name} session.")
+                return
         waiting = self.approvals.current()
         if waiting:
             # Claude is waiting on you ("Can I run this?"): what you said or typed is the answer.
@@ -2076,8 +2086,11 @@ class App:
             if name == "general":
                 self.answer(text, "The general session can't be deleted, but I can clear it.")
             else:
-                self.delete_session(name, you=text)
-            return then
+                # Deleting can't be undone from Juniper, and speech is easy to mishear: ask first.
+                self.confirm_delete = (name, time.time())
+                self.answer(text, f"Delete the {name} session? Say yes to confirm, or no to keep it.")
+                self.awaiting_until = time.time() + 20      # the answer needs no "hey Juniper"
+            return ""
         if action == "switch" and name:
             read_out = self.enter_session(name)
             if not then and not read_out:
