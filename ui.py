@@ -2700,6 +2700,19 @@ SYMBOL_PT, SYMBOL_WEIGHT, SYMBOL_BOX = 16, AppKit.NSFontWeightSemibold, (26.0, 2
 BADGE_PT = 9             # the small symbol on the berries in the menu bar
 
 
+def menu_bar_covered():
+    """Is another app's window over the whole menu bar (a full-screen app or video, Chrome's
+    full-screen toolbar)? Then nothing up there can be seen."""
+    screen = AppKit.NSScreen.screens()[0].frame().size.width
+    for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID) or []:
+        b = w.get("kCGWindowBounds") or {}
+        if (w.get("kCGWindowOwnerPID") != os.getpid() and w.get("kCGWindowLayer", 0) > 24
+                and w.get("kCGWindowOwnerName") not in ("Window Server", "Control Center", "SystemUIServer")
+                and b.get("Y", 1) <= 0 and b.get("Height", 0) >= 20 and b.get("Width", 0) >= screen * 0.9):
+            return True
+    return False
+
+
 def status_item_shown(win):
     """macOS 26 says a menu bar item's window is visible even when it has moved it off the screen,
     or left of the notch under the frontmost app's menus; whether any of it can be seen (occlusion)
@@ -3249,12 +3262,14 @@ class MenuBar(rumps.App):
         button = self._nsapp.nsstatusitem.button()
         return status_item_shown(button.window() if button else None)
 
-    def check_icon_shown(self, again=True):
+    def check_icon_shown(self, misses=0):
         """If the icon isn't showing, say why and how to fix it, and make sure the corner logo is
-        there in the meantime (it opens everything the icon does)."""
+        there in the meantime (it opens everything the icon does). It has to be missing three times,
+        about 20 seconds apart, with the menu bar itself in view: a full-screen app or video covering
+        the menu bar for a moment hides every icon up there and says nothing about this one."""
         from juniper import BUNDLED, get_state, macos_major
-        if not AppKit.NSMenu.menuBarVisible():          # hidden menu bar, full-screen app: look later
-            Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(30, False, lambda t: self.check_icon_shown(again))
+        if not AppKit.NSMenu.menuBarVisible() or menu_bar_covered():
+            Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(30, False, lambda t: self.check_icon_shown(misses))
             return
         shown = self.icon_shown()
         win = self._nsapp.nsstatusitem.button().window()
@@ -3267,8 +3282,8 @@ class MenuBar(rumps.App):
             log("menubar", "icon hidden: macOS gave it no window", "dim")
         if shown or get_state().get("menubar_hint_off"):
             return
-        if again:                                        # a moment's reshuffle (an icon appearing) isn't worth a dialog
-            Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(4, False, lambda t: self.check_icon_shown(False))
+        if misses < 2:                                   # a moment's reshuffle isn't worth a dialog
+            Foundation.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(20, False, lambda t: self.check_icon_shown(misses + 1))
             return
         log("menubar", "macOS isn't showing the menu bar icon", "yellow")
         if not self.app.show_logo:
