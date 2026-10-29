@@ -1,10 +1,12 @@
 """The AIs Juniper can use, and the ones you've connected.
 
-Every AI here runs inside Claude Code, Anthropic's coding agent on your Mac: Claude itself, or
+Most AIs here run inside Claude Code, Anthropic's coding agent on your Mac: Claude itself, or
 another provider's models through that provider's Anthropic-compatible API (DeepSeek, Qwen, Kimi,
 GLM, OpenRouter, Ollama on this Mac, or any compatible endpoint). Claude Code still does the
 work (reading and editing files, running commands, your CLAUDE.md, MCP servers and skills); the
-provider supplies the model.
+provider supplies the model. The rest ("kind": "agent") are other coding agents, with their own
+harness, driven through the Agent Client Protocol (agents.py): Codex, Gemini CLI, Qwen Code and
+OpenCode.
 
 What you've connected is in connections.json in your data folder: which AIs, how (your Claude
 subscription, an API key, or a local model), the model each uses, and your default. API keys are
@@ -21,10 +23,12 @@ from juniper import DATA, KEYCHAIN_SERVICE, log, save_secret, secret
 
 PATH = DATA / "connections.json"
 
-# kind "claude": runs in Claude Code. (Other agents, with their own harness, come in a later change.)
+# Without "kind": runs in Claude Code. "kind": "agent": its own agent (agents.py).
 PROVIDERS = {
     "claude": {
         "name": "Claude", "maker": "Anthropic", "blurb": "Subscription or API key",
+        "way_names": {"subscription": ("My Claude subscription", "Pro or Max: sign in with your Claude account"),
+                      "key": ("An Anthropic API key", "Pay as you go, billed by Anthropic")},
         "desc": "Claude Code with Claude, as you know it.", "ways": ["subscription", "key"],
         "key_url": "https://console.anthropic.com/settings/keys", "key_hint": "sk-ant-…",
         "models_url": "https://api.anthropic.com/v1/models",
@@ -72,6 +76,34 @@ PROVIDERS = {
         "base_url": "http://localhost:11434", "models_url": "http://localhost:11434/api/tags",
         "key_url": "https://ollama.com/download", "prefer": [r"coder", r"qwen", r"gpt-oss"], "fast": [], "models": [],
     },
+    "codex": {
+        "name": "Codex", "maker": "OpenAI", "kind": "agent", "blurb": "ChatGPT plan or API key",
+        "ways": ["subscription", "key"], "way_names": {"subscription": ("My ChatGPT plan", "Plus, Pro or Business: sign in with ChatGPT"),
+                                                         "key": ("An OpenAI API key", "Pay as you go, billed by OpenAI")},
+        "desc": "OpenAI's coding agent, Codex. Your requests go to OpenAI.",
+        "key_url": "https://platform.openai.com/api-keys", "key_hint": "sk-…", "models_url": "https://api.openai.com/v1/models",
+    },
+    "gemini": {
+        "name": "Gemini", "maker": "Google", "kind": "agent", "blurb": "Google account or API key",
+        "ways": ["subscription", "key"], "way_names": {"subscription": ("My Google account", "Free, or Google AI Pro / Ultra: sign in with Google"),
+                                                         "key": ("A Gemini API key", "From Google AI Studio")},
+        "desc": "Google's Gemini CLI. Your requests go to Google.",
+        "key_url": "https://aistudio.google.com/apikey", "key_hint": "AIza…",
+        "models_url": "https://generativelanguage.googleapis.com/v1beta/models",
+    },
+    "qwen-code": {
+        "name": "Qwen Code", "maker": "Alibaba Cloud", "kind": "agent", "blurb": "Coding Plan or API key",
+        "ways": ["key"], "desc": "Qwen's own coding agent. Your requests go to Alibaba Cloud Model Studio.",
+        "key_url": "https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key",
+        "key_hint": "sk-… or a Coding Plan key, sk-sp-…",
+        "note": "A Coding Plan key (sk-sp-…) uses your plan; any other Model Studio key is pay as you go.",
+    },
+    "opencode": {
+        "name": "OpenCode", "maker": "OpenCode", "kind": "agent", "blurb": "Its own sign-ins, or free models",
+        "ways": ["subscription"], "way_names": {"subscription": ("OpenCode's sign-in", "GitHub Copilot, ChatGPT and more, or its free models")},
+        "desc": "The open-source coding agent. It signs in to providers itself, and has free models.",
+        "key_url": "https://opencode.ai/docs/providers",
+    },
     "custom": {
         "name": "Other", "maker": "Any Anthropic-compatible API", "blurb": "Any compatible API",
         "desc": "Runs in Claude Code with any API that speaks Anthropic's format (a gateway, LiteLLM, …).", "ways": ["key"],
@@ -88,9 +120,13 @@ def describe(provider):
     return p.get("desc") or f"Runs in Claude Code with {p['name']}'s models. Your requests go to {p['maker']}."
 
 
+def is_agent(provider):
+    return PROVIDERS.get(provider, {}).get("kind") == "agent"
+
+
 def key_name(provider):
     """The Keychain entry (and .env name) for a provider's API key."""
-    return "ANTHROPIC_API_KEY" if provider == "claude" else f"{provider.upper()}_API_KEY"
+    return "ANTHROPIC_API_KEY" if provider == "claude" else f"{provider.upper().replace('-', '_')}_API_KEY"
 
 
 class Connections:
@@ -155,6 +191,10 @@ def label(conn, model=None):
     """How a connection shows in menus and chips: "DeepSeek · deepseek-v4-pro"."""
     p = PROVIDERS[conn["provider"]]
     name = conn.get("name") or p["name"]
+    if is_agent(conn["provider"]):
+        model = model or conn.get("model") or conn.get("current_model")
+        named = dict(conn.get("agent_models") or []).get(model, model)
+        return f"{name} · {named}" if named else name
     if conn["provider"] == "claude":
         return name + (" (API key)" if conn.get("way") == "key" else "")
     return f"{name} · {model or conn.get('model') or 'default model'}"
@@ -190,6 +230,8 @@ def _get(url, key=None, provider="", timeout=15):
     if key:
         if provider == "claude":
             headers.update({"x-api-key": key, "anthropic-version": "2023-06-01"})
+        elif provider == "gemini":
+            headers["x-goog-api-key"] = key
         else:
             headers["Authorization"] = f"Bearer {key}"
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as r:
@@ -250,7 +292,7 @@ def check(provider, key="", base_url="", model=""):
             _ping(p["base_url"], key, p["models"][0])
             models = list(p["models"])
     except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
+        if e.code in (401, 403) or (provider == "gemini" and e.code == 400):
             return {**result, "message": "That key didn't work. Check it was copied in full."}
         if provider == "custom" and e.code in (400, 404):
             return {**result, "message": f"It answered, but not as an Anthropic-compatible API would ({e.code})."}
@@ -274,11 +316,21 @@ def check(provider, key="", base_url="", model=""):
             "fast_model": pick(models, p["fast"]) if p["fast"] else chosen}
 
 
-def connect(conns, provider, way, key="", base_url="", model="", name=""):
-    """Check and save a connection (the key into the Keychain). Returns check()'s result."""
+QWEN_CODING_PLAN = "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic"   # for keys that start sk-sp-
+
+
+def connect(conns, provider, way, key="", base_url="", model="", name="", progress=lambda line: None):
+    """Check and save a connection (the key into the Keychain). Returns check()'s result. An agent
+    is also installed if needed, signed in, and tried with a real session."""
     if way == "key" and not key and provider != "custom":
         key = secret(key_name(provider))           # already saved: re-check it
-    r = check(provider, key, base_url, model)
+    if is_agent(provider):
+        return _connect_agent(conns, provider, way, key, progress)
+    if provider == "qwen" and key.startswith("sk-sp-"):
+        base_url = QWEN_CODING_PLAN                 # a Coding Plan key only works at its own address
+    r = check(provider, key, base_url, model) if not (provider == "qwen" and base_url) else \
+        {"ok": True, "message": "", "models": PROVIDERS["qwen"]["models"], "model": PROVIDERS["qwen"]["models"][0],
+         "fast_model": PROVIDERS["qwen"]["models"][1]}
     if r["ok"]:
         if way == "key" and key:
             save_secret(key_name(provider), key)
@@ -287,6 +339,39 @@ def connect(conns, provider, way, key="", base_url="", model="", name=""):
         if provider == "custom":
             fields.update(base_url=base_url.rstrip("/"), name=name or "Other",
                           way="key" if key else "none")
+        elif base_url:
+            fields["base_url"] = base_url
         conns.set(provider, **fields)
         log("connect", f"connected {provider} ({way}){' · ' + r['model'] if r['model'] else ''}", "green")
     return r
+
+
+def _connect_agent(conns, provider, way, key, progress):
+    """Codex, Gemini CLI, Qwen Code or OpenCode: check the key (if any) with the provider, install
+    the agent if it isn't on this Mac, sign it in (a subscription opens its own sign-in in your
+    browser), and open a session to be sure it works."""
+    import agents
+    p = PROVIDERS[provider]
+    result = {"ok": False, "message": "", "models": [], "model": "", "fast_model": ""}
+    if way == "key":
+        if not key:
+            return {**result, "message": f"Paste your {p['name']} API key first."}
+        if p.get("models_url"):
+            r = check(provider, key)
+            if not r["ok"]:
+                return r
+            result["message"] = r["message"]
+        save_secret(key_name(provider), key)
+    conn = {"id": provider, "provider": provider, "way": way}
+    try:
+        offered = agents.verify(conn, progress)
+    except agents.AgentError as e:
+        msg = str(e)
+        if way == "subscription" and provider != "opencode":
+            msg = f"Signing in didn't finish ({msg}). Try again, and complete the sign-in in your browser."
+        return {**result, "message": msg}
+    conns.set(provider, provider=provider, way=way, modes=offered["modes"], agent_models=offered["models"],
+              model=offered["model"] or "", current_model=offered["model"], current_mode=offered["mode"])
+    log("connect", f"connected {provider} ({way}){' · ' + offered['model'] if offered['model'] else ''}", "green")
+    return {**result, "ok": True, "models": [m for m, _ in offered["models"]], "model": offered["model"] or "",
+            "model_names": dict(offered["models"])}

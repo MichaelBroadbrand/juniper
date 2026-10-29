@@ -24,7 +24,7 @@ KEY = Path(os.environ.get("JUNIPER_UPDATE_KEY") or Path.home() / ".config" / "ju
 STATE = ROOT / "packaging" / "releases.json"
 # Everything the app runs from an update: the Python, the setup page and the helper scripts.
 # (boot.py, the models and the compiled speech helper stay in the app bundle.)
-CODE_FILES = ["juniper.py", "ui.py", "onboarding.py", "connections.py", "updater.py", "ed25519.py", "config.template.toml",
+CODE_FILES = ["juniper.py", "ui.py", "onboarding.py", "connections.py", "agents.py", "updater.py", "ed25519.py", "config.template.toml",
               "onboarding/index.src.html", "onboarding/logo.svg.txt", "bin/approve_mcp.py", "bin/capture-hook"]
 
 

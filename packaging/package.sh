@@ -33,7 +33,7 @@ echo "› packages"
 "$PY" -m pip install --quiet --disable-pip-version-check --no-cache-dir -r "$ROOT/requirements.txt"
 
 echo "› the app"
-cp "$ROOT"/{boot.py,juniper.py,ui.py,onboarding.py,connections.py,updater.py,ed25519.py,config.template.toml} "$RES/app/"
+cp "$ROOT"/{boot.py,juniper.py,ui.py,onboarding.py,connections.py,agents.py,updater.py,ed25519.py,config.template.toml} "$RES/app/"
 echo "$VERSION" > "$RES/app/version.txt"        # the code's version (updates bring their own)
 mkdir -p "$RES/app/onboarding" "$RES/app/bin" "$RES/app/models/speaker"
 cp "$ROOT"/onboarding/{index.src.html,logo.svg.txt} "$RES/app/onboarding/"

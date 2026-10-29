@@ -672,6 +672,15 @@ class Sessions:
                 parts.append(part)
                 del parts[:-60]
 
+    def update_tool(self, name, tool_id, part):
+        """A tool call that filled in as it ran (agents send the details after the call itself)."""
+        with self.lock:
+            for t in reversed(self.items[name]["turns"][-4:]):
+                for i, old in enumerate(t.get("parts", [])):
+                    if old.get("id") == tool_id:
+                        t["parts"][i] = {**part, "ok": old.get("ok")}
+                        return
+
     def finish_tool(self, name, tool_id, ok):
         with self.lock:
             for t in reversed(self.items[name]["turns"][-4:]):     # an answer to Claude can come in between
@@ -1959,7 +1968,7 @@ class App:
             chime(self.cfg, "Pop")
             self.state.set(working=True)
             try:
-                route = self.router.route(text, self.sessions, self.connections.get())
+                route = self.route(text)
             except Exception as e:
                 log("error", f"couldn't work out the session command ({e!r}); treating it as a request", "red")
                 route = {"action": "none"}
@@ -2034,9 +2043,38 @@ class App:
         """The open session's runner."""
         return self.runner_for(self.sessions.current)
 
+    def route(self, text):
+        """Work out a session command: a quick call to your default AI if it runs in Claude Code
+        (or to another of yours that does), else simple phrases ("switch to my-app")."""
+        import connections
+        conn = next((self.connections.get(c) for c in [self.connections.default, *self.connections.items]
+                     if not connections.is_agent(self.connections.get(c)["provider"])), None)
+        if conn:
+            return self.router.route(text, self.sessions, conn)
+        t = text.strip().rstrip(".!?")
+        m = re.search(r"\b(?:switch|swap|go back|change)\s+to\s+(?:the\s+)?(.+?)(?:\s+session)?(?:\s+and\s+(.*))?$", t, re.I)
+        if m and self.sessions.find(m.group(1).strip()):
+            return {"action": "switch", "session": self.sessions.find(m.group(1).strip()), "then": m.group(2) or ""}
+        m = re.search(r"\bnew\s+session\s+(?:for|in)\s+(.+?)(?:\s+(?:on|with|using)\s+\w+)?(?:\s+and\s+(.*))?$", t, re.I)
+        if m:
+            want = m.group(1).strip().lower().replace(" ", "")
+            folder = next((f for f in self.router.folders(self.sessions)
+                           if os.path.basename(f).lower().replace("-", "").replace("_", "") == want.replace("-", "")), None)
+            if folder:
+                return {"action": "new", "session": os.path.basename(folder), "folder": folder, "then": m.group(2) or ""}
+        if re.search(r"\b(list|which|what)\b.*\bsessions\b", t, re.I):
+            return {"action": "list"}
+        return {"action": "none"}
+
     def runner_for(self, name):
+        """The session's runner: Claude Code (ClaudeRunner), or another agent (agents.AgentRunner)."""
         if name not in self.runners:
-            self.runners[name] = ClaudeRunner(self, name)
+            import connections
+            if connections.is_agent(self.connection_for(name)["provider"]):
+                import agents
+                self.runners[name] = agents.AgentRunner(self, name)
+            else:
+                self.runners[name] = ClaudeRunner(self, name)
         return self.runners[name]
 
     def answer(self, you, text):
@@ -2184,8 +2222,34 @@ class App:
             return text
         return ""
 
+    def agent_modes(self, name=None):
+        """The modes an agent session offers ([(id, name)]), or None for Claude Code."""
+        import connections
+        conn = self.connection_for(name)
+        return conn.get("modes") or [] if connections.is_agent(conn["provider"]) else None
+
+    def mode_text(self, name=None):
+        """What the mode chip says: Claude Code's mode id (it has icons), or an agent's mode name."""
+        s, modes = self.sessions.get(name), self.agent_modes(name)
+        if modes is None:
+            return s.get("mode") or self.cfg["permission_mode"]
+        conn = self.connection_for(name)
+        current = s.get("mode") or conn.get("current_mode")
+        return dict(modes).get(current, current or "Default")
+
     def set_mode(self, wanted, name=None):
         """Change a session's permission mode (from the chip, Shift-Tab, /mode or your voice)."""
+        modes = self.agent_modes(name)
+        if modes is not None:           # an agent's own modes (e.g. OpenCode's build and plan)
+            w = wanted.strip().lower()
+            mode = next((m for m, n in modes if w in (m.lower(), str(n).lower())), None) or \
+                next((m for m, n in modes if w and (w in m.lower() or w in str(n).lower())), None)
+            if not mode:
+                return f"This AI's modes are {', '.join(n for _, n in modes) or 'not adjustable'}."
+            self.sessions.get(name)["mode"] = mode
+            self.sessions.save()
+            self.runner_for(name or self.sessions.current).apply_settings()
+            return f"{dict(modes)[mode]} mode."
         aliases = {"ask": "manual", "default": "manual", "manual": "manual", "normal": "manual",
                    "edits": "acceptEdits", "accept": "acceptEdits", "accept edits": "acceptEdits",
                    "plan": "plan", "planning": "plan", "auto": "auto", "bypass": "bypassPermissions",
@@ -2207,17 +2271,17 @@ class App:
         if conn["provider"] == "claude":
             model = next((m for m, label in MODELS if w in (m, label.lower())), None) or \
                 next((m for m, label in MODELS if w and w.split()[0] in label.lower()), None)
-        else:            # the provider's own models (listed when you connected it)
-            choices = conn.get("models") or [conn.get("model")]
-            model = next((m for m in choices if m.lower() == w), None) or \
-                next((m for m in choices if w and w in m.lower()), None)
+        else:            # the provider's or agent's own models (listed when you connected it)
+            pairs = conn.get("agent_models") or [(m, m) for m in conn.get("models") or [conn.get("model")] if m]
+            model = next((m for m, n in pairs if w in (m.lower(), str(n).lower())), None) or \
+                next((m for m, n in pairs if w and (w in m.lower() or w in str(n).lower())), None)
         if not model:
             return f"I don't know a model called {wanted}."
         self.sessions.get(name)["model"] = model
         self.sessions.save()
         self.runner_for(name or self.sessions.current).apply_settings()
         log("model", f"[{name or self.sessions.current}] {model}", "green")
-        return f"Using {model_label(model)} from now on in this session."
+        return f"Using {dict(conn.get('agent_models') or []).get(model) or model_label(model)} from now on in this session."
 
     def connection_for(self, name=None):
         """The AI a session uses. A session keeps the one it started with (changing your default
@@ -2267,8 +2331,9 @@ class App:
             if r.thread:
                 r.thread.join(timeout=10)
         r.stop()
+        self.runners.pop(name, None)            # the next one may be a different kind (Claude Code or an agent)
         self.sessions.clear(name)
-        self.sessions.get(name).update(ai=cid, model=None, context_used=0, context_window=0)
+        self.sessions.get(name).update(ai=cid, model=None, mode=None, context_used=0, context_window=0)
         self.sessions.save()
         log("ai", f"[{name}] {cid}", "green")
         return f"{name} now uses {title}, starting a fresh conversation."
@@ -2286,6 +2351,13 @@ class App:
 
     def cycle_mode(self):
         """Shift-Tab in the text box, like Claude Code."""
+        agent = self.agent_modes()
+        if agent is not None:
+            ids = [m for m, _ in agent]
+            current = self.sessions.get().get("mode") or self.connection_for().get("current_mode")
+            if ids:
+                self.set_mode(ids[(ids.index(current) + 1) % len(ids)] if current in ids else ids[0])
+            return
         modes = [m for m, _ in MODES if m != "bypassPermissions"]
         current = self.sessions.get().get("mode") or self.cfg["permission_mode"]
         nxt = modes[(modes.index(current) + 1) % len(modes)] if current in modes else modes[0]

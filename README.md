@@ -1,9 +1,9 @@
 # Juniper
 
 **Talk to your AI coding agent from your Mac's menu bar.** Say "hey Juniper, …" (or hold a key)
-and your request goes to the real Claude Code on your Mac, with Claude or the AI you prefer
-(DeepSeek, Qwen, Kimi, GLM, OpenRouter, a model on your Mac with Ollama, or any compatible API).
-Your `CLAUDE.md`, MCP servers, skills and hooks all apply. The reply is spoken aloud and shown in
+and your request goes to a real coding agent on your Mac: Claude Code (with Claude, or DeepSeek,
+Qwen, Kimi, GLM, OpenRouter, a model on your Mac with Ollama, or any compatible API), Codex,
+Gemini CLI, Qwen Code or OpenCode, signed in with your own subscription or API key. The reply is spoken aloud and shown in
 a small floating overlay, with every command it runs and every file it changes.
 
 Your audio stays on your Mac. A tiny keyword model listens for "hey Juniper" using under 1% of
@@ -29,9 +29,11 @@ On first open, a short setup walks you through:
 4. **Teaching it your voice:** read five lines, so that "hey Juniper" only works for you.
 5. **Your projects folder**, so you can say "new session for my-app".
 
-**Requirements:** an Apple Silicon Mac on macOS 14 or later, and one of: a Claude subscription,
-an API key for Anthropic, DeepSeek, Qwen (Alibaba Cloud Model Studio), Kimi, GLM (Z.ai) or
-OpenRouter, Ollama with a model, or any Anthropic-compatible endpoint. macOS 26 uses Apple's on-device speech recognition; older versions download a
+**Requirements:** an Apple Silicon Mac on macOS 14 or later, and at least one AI: a Claude, ChatGPT
+or Google subscription; an API key for Anthropic, OpenAI, Gemini, DeepSeek, Qwen (Alibaba Cloud
+Model Studio or its Coding Plan), Kimi, GLM (Z.ai) or OpenRouter; OpenCode (free models
+included); Ollama with a model; or any Anthropic-compatible endpoint. Codex, Gemini CLI and Qwen
+Code need Node.js; Juniper installs the agents themselves. macOS 26 uses Apple's on-device speech recognition; older versions download a
 Whisper model (about 150 MB) the first time it's needed.
 
 ## Using it
@@ -66,23 +68,35 @@ Type `/` for commands: Juniper's own (`/clear`, `/compact`, `/mode`, `/model`, `
 
 ## Your AI
 
-Juniper drives Claude Code, Anthropic's coding agent, which does the actual work on your Mac.
-The model behind it is your choice:
+A coding agent does the actual work on your Mac: reading and editing files, running commands.
+Juniper gives it your voice. Pick any of these, and use different ones in different sessions:
 
-| AI | How you connect |
-|---|---|
-| Claude | Your Claude subscription (Pro or Max), or an Anthropic API key |
-| DeepSeek, Qwen, Kimi, GLM, OpenRouter | An API key from that provider; Claude Code talks to its Anthropic-compatible API |
-| Ollama | A model on your Mac; nothing leaves it |
-| Other | Any Anthropic-compatible address (a company gateway, LiteLLM, …) |
+| AI | Agent | How you connect |
+|---|---|---|
+| Claude | Claude Code | Your Claude subscription (Pro or Max), or an Anthropic API key |
+| DeepSeek, Qwen, Kimi, GLM, OpenRouter | Claude Code, with that provider's models | An API key (a Qwen Coding Plan key uses your plan) |
+| Ollama | Claude Code, with a model on your Mac | Nothing to sign in to; nothing leaves your Mac |
+| Other | Claude Code | Any Anthropic-compatible address (a company gateway, LiteLLM, …) |
+| Codex | OpenAI's Codex | Your ChatGPT plan (sign in with ChatGPT), or an OpenAI API key |
+| Gemini | Google's Gemini CLI | Your Google account (free tier, AI Pro or Ultra), or a Gemini API key |
+| Qwen Code | Qwen's own agent | A Model Studio key, or a Coding Plan key |
+| OpenCode | OpenCode | Its own sign-ins (GitHub Copilot, ChatGPT and more), or its free models |
+
+Codex, Gemini CLI, Qwen Code and OpenCode are driven through the
+[Agent Client Protocol](https://agentclientprotocol.com); Juniper installs them into its own
+folder (`~/Library/Application Support/Juniper/agents`) when you connect them, unless they're
+already on your Mac. Their permission requests come to the same card as Claude Code's, and the
+mode and model chips show what each agent offers.
 
 Connect them in the setup, or later from the menu bar (Add or change AIs…). Each session keeps
 its AI; the model chip under the text box switches model or AI (a new AI starts the
 conversation fresh), as do `/ai deepseek` and `/model …`, or saying "new session for my-app on
 DeepSeek". **We never see your API keys:** Juniper has no servers. Keys live in your login
-Keychain, Claude Code reads one only when it needs it (they're never in the environment of the
-commands it runs), and it's sent only to its own provider. With another provider, nothing goes
-to Anthropic.
+Keychain and are only ever sent to their own provider. Claude Code reads one only when it needs
+it, so it's never in the environment of the commands it runs; Codex, Gemini CLI and Qwen Code
+take theirs the way they expect, in their environment. A subscription sign-in is the agent's own
+(in your browser, or its login command), so Juniper never sees it. With another provider,
+nothing goes to Anthropic.
 
 ## Sessions
 
@@ -128,6 +142,7 @@ Testing without talking: `./juniper --file clip.wav --mute --dry-run`.
 |---|---|
 | `juniper.py` | Microphone, wake word, voice check, speech recognition, one long-lived Claude Code process per session, speaking |
 | `connections.py` | The AIs Juniper can use, the ones you've connected, checking keys and listing models |
+| `agents.py` | Codex, Gemini CLI, Qwen Code and OpenCode over the Agent Client Protocol: installing, signing in, one agent per session |
 | `ui.py` | Menu bar icon and panel, overlay, logo, global keys |
 | `onboarding.py`, `onboarding/` | The first-run setup (a web page in a native window) |
 | `bin/approve_mcp.py` | A tiny MCP server Claude Code calls for permission, which asks you in the overlay |
