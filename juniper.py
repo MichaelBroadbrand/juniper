@@ -531,6 +531,11 @@ class State:
 
     def set(self, **changes):
         with self.lock:
+            # However the overlay closes (✕, or by itself when nothing was asked), only a reply that
+            # finishes after that should earn the logo its dot. Only on closing: closing again
+            # mustn't hide a reply that came in while it was already closed.
+            if changes.get("dismissed") and not self.dismissed:
+                changes.setdefault("dismissed_at", time.time())
             for k, v in changes.items():
                 setattr(self, k, v)
             self.active_at = time.time()
@@ -2523,8 +2528,14 @@ class App:
         else:
             self.recorder = None
             with self.ptt_lock:
-                if not self.ptt:
+                talking = self.ptt is not None          # holding push-to-talk: that recording goes on
+                if not talking:
                     self.mic.close()
+            if not talking:
+                # Whatever open mic was in the middle of (a request after "hey Juniper", a follow-up)
+                # is dropped, so stop showing "Listening…".
+                self.listen_request, self.pending_wake, self.awaiting_until = False, b"", 0.0
+                self.state.set(recording=False, followup=False)
             log("mic", f"open mic off: hold {key_hint(self.cfg['ptt_key'])} to talk", "yellow")
             chime(self.cfg, "Bottle")
 
